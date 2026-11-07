@@ -1,5 +1,8 @@
 ; SPDX-License-Identifier: AGPL-3.0-or-later
 ; Generated from Wine's dlls/winmm/winmm.spec: forward every export to the real winmm
+; The list of exported function names comes from the Wine project
+; (https://gitlab.winehq.org/wine/wine, LGPL-2.1-or-later), whose license allows its use
+; in a work under the AGPL-3.0-or-later.
 LIBRARY winmm
 EXPORTS
   CloseDriver=winmm_orig.CloseDriver

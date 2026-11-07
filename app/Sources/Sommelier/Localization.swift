@@ -270,5 +270,12 @@ let english: [String: String] = [
     "Terminato con codice %@": "Exited with code %@",
     "terminato con codice %@": "exited with code %@",
     "Completato": "Completed",
+    "Passo %@ di %@": "Step %@ of %@",
+    "Nessun programma": "No programs",
+    "Programma non trovato": "Program not found",
+    "Apri bottiglia": "Open Bottle",
+    "Percorso": "Path",
+    "Argomenti di avvio": "Launch arguments",
+    "Tempo trascorso in questo passo": "Time spent in this step",
     "Impossibile avviare sommelier: %@": "Couldn't start sommelier: %@",
 ]

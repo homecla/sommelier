@@ -104,15 +104,8 @@ struct BranchCard: View {
                     .padding(.top, 2)
 
                     if let job {
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let p = job.progress, p < 1 {
-                                ProgressView(value: p)
-                            } else {
-                                ProgressView().progressViewStyle(.linear)
-                            }
-                            Text(job.step.isEmpty ? L("Avvio…") : job.step).font(.caption).foregroundStyle(.secondary)
-                        }
-                        .padding(.top, 4)
+                        JobProgress(job: job)
+                            .padding(.top, 4)
                     }
                 }
                 Spacer(minLength: 8)

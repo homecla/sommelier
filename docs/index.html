@@ -239,7 +239,7 @@ cd sommelier
     <p>The app speaks <strong>English</strong> and <strong>Italian</strong>. By default it follows your Mac's language; to change it, open <strong>Sommelier → Settings</strong> (<kbd>⌘,</kbd>) and choose <strong>Language</strong>.</p>
 
     <h2 id="en-app"><span class="n">04</span>Using the app</h2>
-    <p>The sidebar has four areas: <strong>Versions</strong>, <strong>Recipes</strong>, your <strong>Bottles</strong> and <strong>Activity</strong>.</p>
+    <p>The sidebar has five areas: <strong>Versions</strong>, <strong>Recipes</strong>, <strong>Programs</strong> (every program you can launch, in any bottle), your <strong>Bottles</strong> and <strong>Activity</strong>.</p>
 
     <h3>Wine versions</h3>
     <figure><img src="images/en/versions.png" alt="The Versions section with Wine Stable installed and Devel and Staging available" width="900" height="612" loading="lazy"><figcaption>Versions: installed and latest version for each branch.</figcaption></figure>
@@ -258,7 +258,7 @@ cd sommelier
       <li><span>Choose a <strong>setup</strong>: <em>Empty</em> (just Wine) or one of the recipes (Steam, Classic games, Applications, .NET applications…). Recipes marked <strong>Install</strong> also download and install a program.</span></li>
       <li><span>Type a <strong>Name</strong> (for example “Games” or “Office”).</span></li>
       <li><span>Choose the <strong>Wine Version</strong>: <em>Default</em> follows the default branch, or pick a specific one.</span></li>
-      <li><span>Click <strong>Create</strong> (or <strong>Create and Install</strong>). Progress appears in the bottle and in <strong>Activity</strong>. The first time, preparing a bottle takes about a minute.</span></li>
+      <li><span>Click <strong>Create</strong> (or <strong>Create and Install</strong>). A progress bar shows <strong>Step 3 of 8</strong>, what is happening and how long the current step has been running, both in the bottle and in <strong>Activity</strong>. The first time, preparing a bottle takes about a minute.</span></li>
     </ol>
 
     <h3>Running Windows programs</h3>
@@ -275,6 +275,8 @@ cd sommelier
     <h3>The program list</h3>
     <p>After installing something, click <strong>Find Installed Programs</strong>: Sommelier looks for Start menu and Desktop shortcuts and for programs in <code>Program Files</code>, and lets you choose which ones to add. You can also add a file by hand with <strong>Add…</strong>.</p>
     <p>Click a program to launch it. Right-click it to <strong>Rename…</strong>, <strong>Show in Finder</strong> or <strong>Remove from List</strong> (the program stays installed in the bottle).</p>
+    <p>Every program in the list also appears in the <strong>Programs</strong> section of the sidebar, with the bottle it belongs to and a green dot while it is running. Select it to see its page: <strong>Launch</strong>, <strong>Open Bottle</strong>, <strong>Show in Finder</strong>, its path and its launch arguments.</p>
+    <figure><img src="images/en/program.png" alt="The page of the Steam program with Launch, Open Bottle and Show in Finder" width="900" height="612" loading="lazy"><figcaption>A program's page, opened from the Programs section.</figcaption></figure>
 
     <h3>Tools</h3>
     <div class="table"><table>
@@ -309,7 +311,7 @@ cd sommelier
 
     <h3>Activity</h3>
     <figure><img src="images/en/activity.png" alt="The Activity section listing operations with their logs" width="900" height="612" loading="lazy"><figcaption>Activity: every operation with its log.</figcaption></figure>
-    <p>Every installation, recipe and program you launch appears here with its log. Use <strong>Copy</strong> to copy a log (useful when asking for help), <strong>Stop</strong> to end a running task and <strong>Clear Completed</strong> to tidy up the list.</p>
+    <p>Every installation, recipe and program you launch appears here with its log; running installations and recipes show their progress bar. Use <strong>Copy</strong> to copy a log (useful when asking for help), <strong>Stop</strong> to end a running task and <strong>Clear Completed</strong> to tidy up the list.</p>
 
     <h3>Settings</h3>
     <p><strong>Sommelier → Settings</strong> (<kbd>⌘,</kbd>):</p>
@@ -380,10 +382,12 @@ sommelier doctor                     <span class="c"># check Rosetta, permission
 
     <h2 id="en-uninstall"><span class="n">09</span>Uninstalling</h2>
     <ol class="steps">
+      <li><span>Quit <strong>Sommelier</strong> (<kbd>⌘Q</kbd>) and any Windows program that is running.</span></li>
       <li><span>Remove Wine versions from <strong>Versions</strong> (or <code>sommelier uninstall &lt;branch&gt;</code>).</span></li>
       <li><span>Drag <strong>Sommelier</strong> from Applications to the Trash.</span></li>
       <li><span>Remove the command and recipes: <code>rm ~/.local/bin/sommelier &amp;&amp; rm -r ~/.local/share/sommelier</code></span></li>
       <li><span>To also delete <strong>all bottles and their programs</strong>, move <code>~/Library/Application Support/Sommelier</code> to the Trash. This cannot be undone once the Trash is emptied.</span></li>
+      <li><span>Remove the settings files: <code>rm ~/Library/Preferences/io.github.homecla.sommelier.plist ~/Library/Preferences/org.winehq.wine.plist</code> (<code>defaults delete</code> is not enough: it empties the files but leaves them in place).</span></li>
     </ol>
 
     <h2 id="en-files"><span class="n">10</span>Where files are stored</h2>
@@ -468,7 +472,7 @@ cd sommelier
     <p>L'app parla <strong>italiano</strong> e <strong>inglese</strong>. In automatico segue la lingua del Mac; per cambiarla apri <strong>Sommelier → Impostazioni</strong> (<kbd>⌘,</kbd>) e scegli <strong>Lingua</strong>.</p>
 
     <h2 id="it-app"><span class="n">04</span>Usare l'app</h2>
-    <p>La barra laterale ha quattro aree: <strong>Versioni</strong>, <strong>Ricette</strong>, le tue <strong>Bottiglie</strong> e <strong>Attività</strong>.</p>
+    <p>La barra laterale ha cinque aree: <strong>Versioni</strong>, <strong>Ricette</strong>, <strong>Programmi</strong> (tutti i programmi che puoi avviare, in qualsiasi bottiglia), le tue <strong>Bottiglie</strong> e <strong>Attività</strong>.</p>
 
     <h3>Versioni di Wine</h3>
     <figure><img src="images/it/versions.png" alt="La sezione Versioni con Wine Stable installato e Devel e Staging disponibili" width="900" height="612" loading="lazy"><figcaption>Versioni: versione installata e ultima disponibile per ogni ramo.</figcaption></figure>
@@ -487,7 +491,7 @@ cd sommelier
       <li><span>Scegli una <strong>configurazione</strong>: <em>Vuota</em> (solo Wine) o una delle ricette (Steam, Giochi classici, Applicazioni, Applicazioni .NET…). Le ricette con l'etichetta <strong>Installa</strong> scaricano e installano anche un programma.</span></li>
       <li><span>Scrivi un <strong>Nome</strong> (per esempio «Giochi» o «Ufficio»).</span></li>
       <li><span>Scegli la <strong>Versione di Wine</strong>: <em>Predefinita</em> segue il ramo predefinito, oppure scegline una precisa.</span></li>
-      <li><span>Fai clic su <strong>Crea</strong> (o <strong>Crea e installa</strong>). L'avanzamento compare nella bottiglia e in <strong>Attività</strong>. La prima volta, preparare una bottiglia richiede circa un minuto.</span></li>
+      <li><span>Fai clic su <strong>Crea</strong> (o <strong>Crea e installa</strong>). Una barra di avanzamento mostra <strong>Passo 3 di 8</strong>, cosa sta succedendo e da quanto tempo è in corso il passo, sia nella bottiglia sia in <strong>Attività</strong>. La prima volta, preparare una bottiglia richiede circa un minuto.</span></li>
     </ol>
 
     <h3>Eseguire programmi Windows</h3>
@@ -504,6 +508,8 @@ cd sommelier
     <h3>L'elenco dei programmi</h3>
     <p>Dopo aver installato qualcosa, fai clic su <strong>Cerca programmi installati</strong>: Sommelier cerca i collegamenti del menu Start e del Desktop e i programmi in <code>Program Files</code>, e ti fa scegliere quali aggiungere. Puoi anche aggiungere un file a mano con <strong>Aggiungi…</strong>.</p>
     <p>Fai clic su un programma per avviarlo. Con il clic destro puoi <strong>Rinomina…</strong>, <strong>Mostra nel Finder</strong> o <strong>Rimuovi dall'elenco</strong> (il programma resta installato nella bottiglia).</p>
+    <p>Ogni programma dell'elenco compare anche nella sezione <strong>Programmi</strong> della barra laterale, con la bottiglia a cui appartiene e un pallino verde quando è in esecuzione. Selezionandolo vedi la sua pagina: <strong>Avvia</strong>, <strong>Apri bottiglia</strong>, <strong>Mostra nel Finder</strong>, il percorso e gli argomenti di avvio.</p>
+    <figure><img src="images/it/program.png" alt="La pagina del programma Steam con Avvia, Apri bottiglia e Mostra nel Finder" width="900" height="612" loading="lazy"><figcaption>La pagina di un programma, aperta dalla sezione Programmi.</figcaption></figure>
 
     <h3>Strumenti</h3>
     <div class="table"><table>
@@ -538,7 +544,7 @@ cd sommelier
 
     <h3>Attività</h3>
     <figure><img src="images/it/activity.png" alt="La sezione Attività con l'elenco delle operazioni e i loro registri" width="900" height="612" loading="lazy"><figcaption>Attività: ogni operazione con il suo registro.</figcaption></figure>
-    <p>Ogni installazione, ricetta e programma avviato compare qui con il suo registro. Usa <strong>Copia</strong> per copiare un registro (utile per chiedere aiuto), <strong>Interrompi</strong> per fermare un'operazione in corso e <strong>Pulisci completate</strong> per riordinare l'elenco.</p>
+    <p>Ogni installazione, ricetta e programma avviato compare qui con il suo registro; installazioni e ricette in corso mostrano la loro barra di avanzamento. Usa <strong>Copia</strong> per copiare un registro (utile per chiedere aiuto), <strong>Interrompi</strong> per fermare un'operazione in corso e <strong>Pulisci completate</strong> per riordinare l'elenco.</p>
 
     <h3>Impostazioni</h3>
     <p><strong>Sommelier → Impostazioni</strong> (<kbd>⌘,</kbd>):</p>
@@ -609,10 +615,12 @@ sommelier doctor                     <span class="c"># controlla Rosetta, permes
 
     <h2 id="it-uninstall"><span class="n">09</span>Disinstallazione</h2>
     <ol class="steps">
+      <li><span>Chiudi <strong>Sommelier</strong> (<kbd>⌘Q</kbd>) e gli eventuali programmi Windows aperti.</span></li>
       <li><span>Rimuovi le versioni di Wine da <strong>Versioni</strong> (oppure <code>sommelier uninstall &lt;ramo&gt;</code>).</span></li>
       <li><span>Trascina <strong>Sommelier</strong> dalla cartella Applicazioni al Cestino.</span></li>
       <li><span>Rimuovi il comando e le ricette: <code>rm ~/.local/bin/sommelier &amp;&amp; rm -r ~/.local/share/sommelier</code></span></li>
       <li><span>Per cancellare anche <strong>tutte le bottiglie e i loro programmi</strong>, sposta nel Cestino <code>~/Library/Application Support/Sommelier</code>. Una volta svuotato il Cestino non si torna indietro.</span></li>
+      <li><span>Rimuovi i file delle impostazioni: <code>rm ~/Library/Preferences/io.github.homecla.sommelier.plist ~/Library/Preferences/org.winehq.wine.plist</code> (<code>defaults delete</code> non basta: svuota i file ma li lascia al loro posto).</span></li>
     </ol>
 
     <h2 id="it-files"><span class="n">10</span>Dove si trovano i file</h2>

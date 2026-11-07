@@ -19,6 +19,12 @@ struct ContentView: View {
                 else { ContentUnavailableView(L("Bottiglia non trovata"), systemImage: "wineglass") }
             case .activity:
                 ActivityView()
+            case .program(let bottleName, let path):
+                if let b = model.bottle(named: bottleName), let p = b.programs.first(where: { $0.path == path }) {
+                    ProgramDetailView(bottle: b, program: p).id(b.id + path)
+                } else {
+                    ContentUnavailableView(L("Programma non trovato"), systemImage: "app.dashed")
+                }
             case .recipes:
                 RecipesView()
             default:
@@ -46,6 +52,8 @@ struct ContentView: View {
 struct Sidebar: View {
     @Environment(AppModel.self) private var model
     @State private var confirmDelete: Bottle?
+    @AppStorage("sidebar.programs.expanded") private var programsExpanded = true
+    @AppStorage("sidebar.bottles.expanded") private var bottlesExpanded = true
 
     var body: some View {
         @Bindable var model = model
@@ -58,7 +66,16 @@ struct Sidebar: View {
                     .badge(model.catalogUpdates)
                     .tag(SidebarItem.recipes)
             }
-            Section(L("Bottiglie")) {
+            Section(L("Programmi"), isExpanded: $programsExpanded) {
+                ForEach(model.allPrograms) { entry in
+                    ProgramSidebarRow(bottle: entry.bottle, program: entry.program)
+                        .tag(SidebarItem.program(bottle: entry.bottle.name, path: entry.program.path))
+                }
+                if model.allPrograms.isEmpty {
+                    Text(L("Nessun programma")).foregroundStyle(.secondary).font(.callout)
+                }
+            }
+            Section(L("Bottiglie"), isExpanded: $bottlesExpanded) {
                 ForEach(model.bottles) { b in
                     Label {
                         HStack {
@@ -88,6 +105,7 @@ struct Sidebar: View {
                     .tag(SidebarItem.activity)
             }
         }
+        .id(model.sidebarIdentity)     // rebuild when bottles or programs change (stale sidebar fix)
         .safeAreaInset(edge: .bottom) {
             Button { model.showNewBottle = true } label: {
                 Label(L("Nuova bottiglia"), systemImage: "plus.circle.fill").frame(maxWidth: .infinity, alignment: .leading)

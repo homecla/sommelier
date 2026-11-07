@@ -17,6 +17,7 @@ struct ActivityView: View {
                         Text([j.bottle.map { "«\($0)»" }, j.started.formatted(date: .omitted, time: .shortened)]
                                 .compactMap { $0 }.joined(separator: " · "))
                             .font(.caption).foregroundStyle(.secondary)
+                        if j.showsProgress { JobProgress(job: j, compact: true) }
                     }
                 }
                 .tag(j.id)
@@ -60,9 +61,13 @@ struct JobLogView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(job.title).font(.headline)
-                    Text(statusText).font(.caption).foregroundStyle(job.error != nil ? .red : .secondary)
+                    if job.showsProgress {
+                        JobProgress(job: job).frame(maxWidth: 420)
+                    } else {
+                        Text(statusText).font(.caption).foregroundStyle(job.error != nil ? .red : .secondary)
+                    }
                 }
                 Spacer()
                 Button {
@@ -94,5 +99,49 @@ struct JobLogView: View {
         if let e = job.error { return L("Errore: %@", "\(e)") }
         if let c = job.exitCode, c != 0 { return L("Terminato con codice %@", "\(c)") }
         return L("Completato")
+    }
+}
+
+extension Job {
+    /// Installations and recipes show a progress bar; launched programs run until they are closed.
+    var showsProgress: Bool { running && (kind == .wine || kind == .bottle || (kind == .tool && stageCount > 0)) }
+}
+
+/// Progress of a running task: overall bar, "Step i of n · current step" and time spent in the step.
+struct JobProgress: View {
+    let job: Job
+    var compact = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let p = job.overallProgress {
+                ProgressView(value: p)
+            } else {
+                ProgressView().progressViewStyle(.linear)
+            }
+            if !compact {
+                HStack(spacing: 6) {
+                    if job.stageCount > 0 {
+                        Text(L("Passo %@ di %@", "\(job.stage)", "\(job.stageCount)"))
+                            .fontWeight(.medium).monospacedDigit()
+                        Text("·")
+                    }
+                    Text(job.step.isEmpty ? L("Avvio…") : job.step).lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 6)
+                    TimelineView(.periodic(from: .now, by: 1)) { context in
+                        Text(Self.elapsed(from: job.stageStarted ?? job.started, to: context.date))
+                            .monospacedDigit()
+                            .help(L("Tempo trascorso in questo passo"))
+                    }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    static func elapsed(from start: Date, to now: Date) -> String {
+        let s = max(0, Int(now.timeIntervalSince(start)))
+        return String(format: "%d:%02d", s / 60, s % 60)
     }
 }

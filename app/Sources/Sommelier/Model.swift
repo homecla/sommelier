@@ -115,9 +115,17 @@ struct CatalogResponse: Codable {
     let recipes: [CatalogRecipe]
 }
 
+/// A program together with the bottle it lives in.
+struct ProgramEntry: Identifiable {
+    let bottle: Bottle
+    let program: Program
+    var id: String { bottle.name + "\u{1}" + program.path }
+}
+
 enum SidebarItem: Hashable {
     case versions
     case recipes
+    case program(bottle: String, path: String)
     case bottle(String)
     case activity
 }
@@ -130,17 +138,21 @@ final class Job: Identifiable {
     let kind: Kind
     let bottle: String?
     let branch: String?
+    let target: String?        // file or command being run (for programs)
     let started = Date()
     var lines: [String] = []
     var step = ""
-    var progress: Double?
+    var progress: Double?          // progress inside the current step (downloads)
+    var stage = 0                  // current numbered step (from "@stage i n")
+    var stageCount = 0
+    var stageStarted: Date?
     var error: String?
     var running = true
     var exitCode: Int32?
     var process: Process?
 
-    init(title: String, kind: Kind, bottle: String? = nil, branch: String? = nil) {
-        self.title = title; self.kind = kind; self.bottle = bottle; self.branch = branch
+    init(title: String, kind: Kind, bottle: String? = nil, branch: String? = nil, target: String? = nil) {
+        self.title = title; self.kind = kind; self.bottle = bottle; self.branch = branch; self.target = target
     }
 
     func append(_ line: String) {
@@ -151,6 +163,13 @@ final class Job: Identifiable {
     func stop() { process?.terminate() }
 
     var succeeded: Bool { !running && exitCode == 0 && error == nil }
+
+    /// Overall progress 0…1 when the script reports numbered steps, otherwise the step progress (or nil).
+    var overallProgress: Double? {
+        guard stageCount > 0, stage > 0 else { return progress }
+        let done = Double(stage - 1) + min(max(progress ?? 0, 0), 1)
+        return min(done / Double(stageCount), 1)
+    }
 }
 
 // MARK: - App model
@@ -217,9 +236,9 @@ final class AppModel {
     }
 
     @discardableResult
-    private func startJob(_ title: String, kind: Job.Kind, bottle: String? = nil, branch: String? = nil,
+    private func startJob(_ title: String, kind: Job.Kind, bottle: String? = nil, branch: String? = nil, target: String? = nil,
                           args: [String], onExit: @escaping @MainActor (Job) -> Void = { _ in }) -> Job {
-        let job = Job(title: title, kind: kind, bottle: bottle, branch: branch)
+        let job = Job(title: title, kind: kind, bottle: bottle, branch: branch, target: target)
         jobs.insert(job, at: 0)
         if jobs.count > 60, let i = jobs.lastIndex(where: { !$0.running }) { jobs.remove(at: i) }
         Runner.start(args, job: job, onLine: { line in
@@ -236,6 +255,17 @@ final class AppModel {
     private static func handleMachineLine(_ line: String, job: Job) {
         if line.hasPrefix("@progress ") {
             if let v = Double(line.dropFirst(10)) { job.progress = v / 100 }
+        } else if line.hasPrefix("@stage ") {
+            let parts = line.dropFirst(7).split(separator: " ").compactMap { Int($0) }
+            if parts.count == 2 {
+                job.stage = parts[0]; job.stageCount = parts[1]
+                job.stageStarted = Date(); job.progress = nil
+            }
+        } else if line.hasPrefix("@bottle-created ") {
+            // the bottle folder now exists: show it in the sidebar right away
+            let name = String(line.dropFirst(16))
+            AppModel.shared.loadBottles()
+            if AppModel.shared.bottle(named: name) != nil { AppModel.shared.selection = .bottle(name) }
         } else if line.hasPrefix("@step ") {
             job.step = String(line.dropFirst(6)); job.append("▸ " + job.step)
         } else if line.hasPrefix("@error ") {
@@ -311,6 +341,22 @@ final class AppModel {
     }
 
     func bottle(named n: String) -> Bottle? { bottles.first { $0.name == n } }
+
+    /// Every saved program of every bottle, sorted by name (for the sidebar).
+    var allPrograms: [ProgramEntry] {
+        bottles.flatMap { b in b.programs.map { ProgramEntry(bottle: b, program: $0) } }
+            .sorted { $0.program.name.localizedStandardCompare($1.program.name) == .orderedAscending }
+    }
+
+    func runningJobs(for p: Program, in b: Bottle) -> [Job] {
+        jobs.filter { $0.running && $0.kind == .program && $0.bottle == b.name && $0.target == p.path }
+    }
+
+    /// Changes whenever bottles or programs change: used to rebuild the sidebar list.
+    var sidebarIdentity: String {
+        bottles.map { b in ([b.name] + b.programs.map { $0.name + "|" + $0.path }).joined(separator: "\u{1}") }
+            .joined(separator: "\u{2}")
+    }
 
     private func save(_ b: Bottle) {
         let enc = JSONEncoder()
@@ -413,11 +459,6 @@ final class AppModel {
             self.loadBottles()
             if job.succeeded { self.selection = .bottle(n) } else { self.alert = job.error ?? L("Creazione non riuscita") }
         }
-        // show the bottle right away (while it is being prepared)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.loadBottles()
-            if self?.bottle(named: n) != nil { self?.selection = .bottle(n) }
-        }
     }
 
     func applyPreset(_ p: Preset, to b: Bottle) {
@@ -469,7 +510,7 @@ final class AppModel {
         if verboseLogs { a.append("--debug") }
         a += ["--", target] + args
         let t = title ?? URL(fileURLWithPath: target).lastPathComponent
-        startJob(t, kind: kind, bottle: b.name, args: a) { [weak self] job in
+        startJob(t, kind: kind, bottle: b.name, target: target, args: a) { [weak self] job in
             if let e = job.error, kind != .program { self?.alert = e }
             // after an installer, pick up any new programs
             if kind == .program, ["msi", "exe"].contains(URL(fileURLWithPath: target).pathExtension.lowercased()) {

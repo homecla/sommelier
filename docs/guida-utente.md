@@ -75,7 +75,8 @@ apri **Sommelier → Impostazioni** (⌘,) e scegli **Lingua**.
 
 ## 4. Usare l'app
 
-La barra laterale ha quattro aree: **Versioni**, **Ricette**, le tue **Bottiglie** e **Attività**.
+La barra laterale ha cinque aree: **Versioni**, **Ricette**, **Programmi** (tutti i programmi
+che puoi avviare, in qualsiasi bottiglia), le tue **Bottiglie** e **Attività**.
 
 ### 4.1 Versioni di Wine
 
@@ -101,7 +102,8 @@ Fai clic su **Nuova bottiglia** in fondo alla barra laterale (⌘N).
    scaricano e installano anche un programma.
 2. Scrivi un **Nome** (per esempio «Giochi» o «Ufficio»).
 3. Scegli la **Versione di Wine**: *Predefinita* segue il ramo predefinito, oppure scegline una precisa.
-4. Fai clic su **Crea** (o **Crea e installa**). L'avanzamento compare nella bottiglia e in
+4. Fai clic su **Crea** (o **Crea e installa**). Una barra di avanzamento mostra **Passo 3 di 8**,
+   cosa sta succedendo e da quanto tempo è in corso il passo, sia nella bottiglia sia in
    **Attività**. La prima volta, preparare una bottiglia richiede circa un minuto.
 
 ### 4.3 Eseguire programmi Windows
@@ -126,6 +128,12 @@ quali aggiungere. Puoi anche aggiungere un file a mano con **Aggiungi…**.
 
 Fai clic su un programma per avviarlo. Con il clic destro puoi **Rinomina…**, **Mostra nel
 Finder** o **Rimuovi dall'elenco** (il programma resta installato nella bottiglia).
+
+Ogni programma dell'elenco compare anche nella sezione **Programmi** della barra laterale, con
+la bottiglia a cui appartiene e un pallino verde quando è in esecuzione. Selezionandolo vedi la
+sua pagina: **Avvia**, **Apri bottiglia**, **Mostra nel Finder**, il percorso e gli argomenti di avvio.
+
+![Pagina di un programma](images/it/program.png)
 
 ### 4.5 Strumenti
 
@@ -180,7 +188,8 @@ La sezione **Ricette** mostra:
 
 ![Attività](images/it/activity.png)
 
-Ogni installazione, ricetta e programma avviato compare qui con il suo registro. Usa **Copia**
+Ogni installazione, ricetta e programma avviato compare qui con il suo registro; installazioni
+e ricette in corso mostrano la loro barra di avanzamento. Usa **Copia**
 per copiare un registro (utile per chiedere aiuto), **Interrompi** per fermare un'operazione
 in corso e **Pulisci completate** per riordinare l'elenco.
 
@@ -278,12 +287,16 @@ connessione e fai clic su **Riprova**. Le versioni installate funzionano anche o
 
 ## 9. Disinstallazione
 
-1. Rimuovi le versioni di Wine da **Versioni** (oppure `sommelier uninstall <ramo>`).
-2. Trascina **Sommelier** dalla cartella Applicazioni al Cestino.
-3. Rimuovi il comando e le ricette:
+1. Chiudi **Sommelier** (⌘Q) e gli eventuali programmi Windows aperti.
+2. Rimuovi le versioni di Wine da **Versioni** (oppure `sommelier uninstall <ramo>`).
+3. Trascina **Sommelier** dalla cartella Applicazioni al Cestino.
+4. Rimuovi il comando e le ricette:
    `rm ~/.local/bin/sommelier && rm -r ~/.local/share/sommelier`
-4. Per cancellare anche **tutte le bottiglie e i loro programmi**, sposta nel Cestino
+5. Per cancellare anche **tutte le bottiglie e i loro programmi**, sposta nel Cestino
    `~/Library/Application Support/Sommelier`. Una volta svuotato il Cestino non si torna indietro.
+6. Rimuovi i file delle impostazioni:
+   `rm ~/Library/Preferences/io.github.homecla.sommelier.plist ~/Library/Preferences/org.winehq.wine.plist`
+   (`defaults delete` non basta: svuota i file ma li lascia al loro posto).
 
 ## 10. Dove si trovano i file
 

@@ -20,6 +20,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let model = AppModel.shared
             try? await Task.sleep(for: .seconds(4))
             var shots: [(String, SidebarItem)] = [("versions", .versions), ("recipes", .recipes)]
+            if let e = model.allPrograms.first {
+                shots.append(("program", .program(bottle: e.bottle.name, path: e.program.path)))
+            }
+            // Demo task (screenshots only) so the progress bar can be checked
+            let demo = Job(title: L("Creazione bottiglia «%@» (%@)", "Demo", "Steam"), kind: .bottle, bottle: model.bottles.first?.name)
+            demo.stage = 3; demo.stageCount = 8; demo.stageStarted = Date().addingTimeInterval(-74)
+            demo.step = L("Winetricks: %@", "corefonts")
+            model.jobs.insert(demo, at: 0)
             if let b = model.bottles.first { shots.append(("bottle", .bottle(b.name))) }
             shots.append(("activity", .activity))
             for (name, item) in shots {

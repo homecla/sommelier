@@ -75,7 +75,8 @@ change it, open **Sommelier → Settings** (⌘,) and choose **Language**.
 
 ## 4. Using the app
 
-The sidebar has four areas: **Versions**, **Recipes**, your **Bottles** and **Activity**.
+The sidebar has five areas: **Versions**, **Recipes**, **Programs** (every program you can
+launch, in any bottle), your **Bottles** and **Activity**.
 
 ### 4.1 Wine versions
 
@@ -101,7 +102,8 @@ Click **New Bottle** at the bottom of the sidebar (⌘N).
    a program.
 2. Type a **Name** (for example “Games” or “Office”).
 3. Choose the **Wine Version**: *Default* follows the default branch, or pick a specific one.
-4. Click **Create** (or **Create and Install**). Progress appears in the bottle and in
+4. Click **Create** (or **Create and Install**). A progress bar shows **Step 3 of 8**, what
+   is happening and how long the current step has been running, both in the bottle and in
    **Activity**. The first time, preparing a bottle takes about a minute.
 
 ### 4.3 Running Windows programs
@@ -126,6 +128,12 @@ add. You can also add a file by hand with **Add…**.
 
 Click a program to launch it. Right-click it to **Rename…**, **Show in Finder** or
 **Remove from List** (the program stays installed in the bottle).
+
+Every program in the list also appears in the **Programs** section of the sidebar, with the
+bottle it belongs to and a green dot while it is running. Select it to see its page: **Launch**,
+**Open Bottle**, **Show in Finder**, its path and its launch arguments.
+
+![Program page](images/en/program.png)
 
 ### 4.5 Tools
 
@@ -179,7 +187,8 @@ The **Recipes** section shows:
 
 ![Activity](images/en/activity.png)
 
-Every installation, recipe and program you launch appears here with its log. Use **Copy** to
+Every installation, recipe and program you launch appears here with its log; running
+installations and recipes show their progress bar. Use **Copy** to
 copy a log (useful when asking for help), **Stop** to end a running task and **Clear
 Completed** to tidy up the list.
 
@@ -278,13 +287,17 @@ and the connection.
 
 ## 9. Uninstalling
 
-1. Remove Wine versions from **Versions** (or `sommelier uninstall <branch>`).
-2. Drag **Sommelier** from Applications to the Trash.
-3. Remove the command and recipes:
+1. Quit **Sommelier** (⌘Q) and any Windows program that is running.
+2. Remove Wine versions from **Versions** (or `sommelier uninstall <branch>`).
+3. Drag **Sommelier** from Applications to the Trash.
+4. Remove the command and recipes:
    `rm ~/.local/bin/sommelier && rm -r ~/.local/share/sommelier`
-4. To also delete **all bottles and their programs**, move
+5. To also delete **all bottles and their programs**, move
    `~/Library/Application Support/Sommelier` to the Trash. This cannot be undone once
    the Trash is emptied.
+6. Remove the settings files:
+   `rm ~/Library/Preferences/io.github.homecla.sommelier.plist ~/Library/Preferences/org.winehq.wine.plist`
+   (`defaults delete` is not enough: it empties the files but leaves them in place).
 
 ## 10. Where files are stored
 

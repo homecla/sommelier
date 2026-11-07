@@ -144,14 +144,14 @@ struct BottleView: View {
                 ForEach(running) { j in
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {
-                            ProgressView().controlSize(.small)
+                            if !j.showsProgress { ProgressView().controlSize(.small) }
                             Text(j.title).lineLimit(1)
-                            if !j.step.isEmpty { Text("— \(j.step)").foregroundStyle(.secondary).lineLimit(1) }
+                            if !j.showsProgress, !j.step.isEmpty { Text("— \(j.step)").foregroundStyle(.secondary).lineLimit(1) }
                             Spacer()
                             Button(L("Registro")) { model.selection = .activity }.buttonStyle(.link)
                             if j.kind != .bottle { Button(L("Chiudi")) { j.stop() } }
                         }
-                        if let p = j.progress, p < 1 { ProgressView(value: p) }
+                        if j.showsProgress { JobProgress(job: j) }
                     }
                     .padding(10)
                     .background(Color.green.opacity(0.07), in: RoundedRectangle(cornerRadius: 8))

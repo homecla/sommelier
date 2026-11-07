@@ -206,14 +206,23 @@ in corso e **Pulisci completate** per riordinare l'elenco.
 
 1. Fai clic su **Nuova bottiglia**, scegli la configurazione **Steam** e chiamala «Steam».
 2. Fai clic su **Crea e installa** e attendi: Sommelier imposta Windows 10, installa i font
-   Microsoft, scarica l'installer ufficiale di Valve e installa Steam.
-3. Alla fine **Steam** compare nell'elenco dei programmi della bottiglia, con le opzioni di
-   avvio giuste. Fai clic e accedi.
+   Microsoft, scarica l'installer ufficiale di Valve, installa Steam e aggiunge il correttivo di
+   Sommelier per la finestra di Steam.
+3. Alla fine **Steam** compare in **Programmi** e nell'elenco dei programmi della bottiglia, con
+   le opzioni di avvio giuste. Fai clic: al primo avvio Steam scarica il proprio aggiornamento
+   (qualche centinaio di MB), poi mostra la finestra di accesso.
+
+> **La finestra di Steam.** Con Wine «puro» su macOS la finestra di Steam resterebbe nera: la
+> sua interfaccia è un browser che disegna in un processo separato, che il driver di Wine per
+> macOS non riesce a mostrare. La ricetta installa un piccolo correttivo di Sommelier che fa
+> disegnare il browser nel proprio processo ([come funziona](https://github.com/homecla/sommelier/tree/main/fixes/steam-webhelper/README.it.md)). I file di
+> Steam non vengono modificati, quindi Steam continua ad aggiornarsi da solo. Se la finestra è
+> nera, la bottiglia è stata preparata con una versione precedente di Sommelier: aggiorna
+> Sommelier, poi apri la bottiglia → **Configurazioni predefinite** → **Steam** → **Applica**.
 
 > I giochi DirectX 9 e molti indie girano bene. Con Wine «puro» su macOS i giochi DirectX
 > 11/12 spesso no: servono livelli di traduzione come D3DMetal o DXVK (inclusi in CrossOver
-> o nel Game Porting Toolkit di Apple). Se la finestra di Steam resta nera, chiudila e avvia
-> di nuovo Steam dalla bottiglia.
+> o nel Game Porting Toolkit di Apple).
 
 ## 6. Usare la riga di comando
 

@@ -324,10 +324,11 @@ cd sommelier
     <h2 id="en-steam"><span class="n">05</span>Example: installing Steam</h2>
     <ol class="steps">
       <li><span>Click <strong>New Bottle</strong>, choose the <strong>Steam</strong> setup, name it “Steam”.</span></li>
-      <li><span>Click <strong>Create and Install</strong> and wait: Sommelier sets Windows 10, installs the Microsoft fonts, downloads Valve's official installer and installs Steam.</span></li>
-      <li><span>When it finishes, <strong>Steam</strong> appears in the bottle's program list with the right launch options. Click it and sign in.</span></li>
+      <li><span>Click <strong>Create and Install</strong> and wait: Sommelier sets Windows 10, installs the Microsoft fonts, downloads Valve's official installer, installs Steam and adds Sommelier's fix for Steam's window.</span></li>
+      <li><span>When it finishes, <strong>Steam</strong> appears under <strong>Programs</strong> and in the bottle's program list, with the right launch options. Click it: on the first launch Steam downloads its own update (a few hundred MB), then shows the sign-in window.</span></li>
     </ol>
-    <div class="note"><p>DirectX 9 games and many indie games run well. With plain Wine on macOS, DirectX 11/12 games often don't: they need translation layers such as D3DMetal or DXVK (included in CrossOver or Apple's Game Porting Toolkit). If Steam's window stays black, close it and launch Steam again from the bottle.</p></div>
+    <div class="note"><p>DirectX 9 games and many indie games run well. With plain Wine on macOS, DirectX 11/12 games often don't: they need translation layers such as D3DMetal or DXVK (included in CrossOver or Apple's Game Porting Toolkit).</p></div>
+    <div class="note"><p><strong>Steam's window.</strong> With plain Wine on macOS, Steam's window would stay black: its interface is a web browser that draws in a separate process, which Wine's macOS driver can't display. The recipe installs a small Sommelier fix that makes the browser draw in its own process (<a href="https://github.com/homecla/sommelier/tree/main/fixes/steam-webhelper">how it works</a>). Steam's files are not modified, so Steam keeps updating itself. If the window is black, the bottle was set up with an older version of Sommelier: update Sommelier, then open the bottle → <strong>Recipes</strong> → <strong>Steam</strong> → <strong>Apply</strong>.</p></div>
 
     <h2 id="en-cli"><span class="n">06</span>Using the command line</h2>
     <p>Everything the app does is also available in Terminal with <code>sommelier</code> (<code>sommelier help</code> shows the full list).</p>
@@ -557,10 +558,11 @@ cd sommelier
     <h2 id="it-steam"><span class="n">05</span>Esempio: installare Steam</h2>
     <ol class="steps">
       <li><span>Fai clic su <strong>Nuova bottiglia</strong>, scegli la configurazione <strong>Steam</strong> e chiamala «Steam».</span></li>
-      <li><span>Fai clic su <strong>Crea e installa</strong> e attendi: Sommelier imposta Windows 10, installa i font Microsoft, scarica l'installer ufficiale di Valve e installa Steam.</span></li>
-      <li><span>Alla fine <strong>Steam</strong> compare nell'elenco dei programmi della bottiglia, con le opzioni di avvio giuste. Fai clic e accedi.</span></li>
+      <li><span>Fai clic su <strong>Crea e installa</strong> e attendi: Sommelier imposta Windows 10, installa i font Microsoft, scarica l'installer ufficiale di Valve, installa Steam e aggiunge il correttivo di Sommelier per la finestra di Steam.</span></li>
+      <li><span>Alla fine <strong>Steam</strong> compare in <strong>Programmi</strong> e nell'elenco dei programmi della bottiglia, con le opzioni di avvio giuste. Fai clic: al primo avvio Steam scarica il proprio aggiornamento (qualche centinaio di MB), poi mostra la finestra di accesso.</span></li>
     </ol>
-    <div class="note"><p>I giochi DirectX 9 e molti indie girano bene. Con Wine «puro» su macOS i giochi DirectX 11/12 spesso no: servono livelli di traduzione come D3DMetal o DXVK (inclusi in CrossOver o nel Game Porting Toolkit di Apple). Se la finestra di Steam resta nera, chiudila e avvia di nuovo Steam dalla bottiglia.</p></div>
+    <div class="note"><p>I giochi DirectX 9 e molti indie girano bene. Con Wine «puro» su macOS i giochi DirectX 11/12 spesso no: servono livelli di traduzione come D3DMetal o DXVK (inclusi in CrossOver o nel Game Porting Toolkit di Apple).</p></div>
+    <div class="note"><p><strong>La finestra di Steam.</strong> Con Wine «puro» su macOS la finestra di Steam resterebbe nera: la sua interfaccia è un browser che disegna in un processo separato, che il driver di Wine per macOS non riesce a mostrare. La ricetta installa un piccolo correttivo di Sommelier che fa disegnare il browser nel proprio processo (<a href="https://github.com/homecla/sommelier/tree/main/fixes/steam-webhelper/README.it.md">come funziona</a>). I file di Steam non vengono modificati, quindi Steam continua ad aggiornarsi da solo. Se la finestra è nera, la bottiglia è stata preparata con una versione precedente di Sommelier: aggiorna Sommelier, poi apri la bottiglia → <strong>Configurazioni predefinite</strong> → <strong>Steam</strong> → <strong>Applica</strong>.</p></div>
 
     <h2 id="it-cli"><span class="n">06</span>Usare la riga di comando</h2>
     <p>Tutto ciò che fa l'app è disponibile anche nel Terminale con <code>sommelier</code> (<code>sommelier help</code> mostra l'elenco completo).</p>

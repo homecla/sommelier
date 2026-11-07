@@ -205,14 +205,22 @@ Completed** to tidy up the list.
 
 1. Click **New Bottle**, choose the **Steam** setup, name it “Steam”.
 2. Click **Create and Install** and wait: Sommelier sets Windows 10, installs the Microsoft
-   fonts, downloads Valve's official installer and installs Steam.
-3. When it finishes, **Steam** appears in the bottle's program list with the right launch
-   options. Click it and sign in.
+   fonts, downloads Valve's official installer, installs Steam and adds Sommelier's fix for
+   Steam's window.
+3. When it finishes, **Steam** appears under **Programs** and in the bottle's program list,
+   with the right launch options. Click it: on the first launch Steam downloads its own
+   update (a few hundred MB), then shows the sign-in window.
+
+> **Steam's window.** With plain Wine on macOS, Steam's window would stay black: its
+> interface is a web browser that draws in a separate process, which Wine's macOS driver
+> can't display. The recipe installs a small Sommelier fix that makes the browser draw in
+> its own process ([how it works](https://github.com/homecla/sommelier/tree/main/fixes/steam-webhelper)). Steam's files are not modified, so Steam keeps
+> updating itself. If the window is black, the bottle was set up with an older version of
+> Sommelier: update Sommelier, then open the bottle → **Recipes** → **Steam** → **Apply**.
 
 > DirectX 9 games and many indie games run well. With plain Wine on macOS, DirectX 11/12
 > games often don't: they need translation layers such as D3DMetal or DXVK (included in
-> CrossOver or Apple's Game Porting Toolkit). If Steam's window stays black, close it and
-> launch Steam again from the bottle.
+> CrossOver or Apple's Game Porting Toolkit).
 
 ## 6. Using the command line
 

@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: CC0-1.0
+# Ricetta / Recipe: Steam
+# Ogni ricetta è un file CHIAVE="valore" letto (mai eseguito) da `sommelier`. / Each recipe is a KEY="value" file read (never executed) by `sommelier`.
+ORDER=10
+TITLE="Steam"
+ICON="gamecontroller.fill"
+DESCRIPTION="Scarica e installa il client Steam con le correzioni note per Wine su macOS."
+NOTES="I giochi DirectX 9 e molti indie girano bene. Con Wine «puro» su macOS i giochi DirectX 11/12 spesso no: servono D3DMetal o DXVK (CrossOver, Game Porting Toolkit). Se la finestra di Steam resta nera, chiudila e riavvia Steam dalla bottiglia."
+TITLE_EN="Steam"
+DESCRIPTION_EN="Downloads and installs the Steam client with the known fixes for Wine on macOS."
+NOTES_EN="DirectX 9 games and many indie games run well. With plain Wine on macOS, DirectX 11/12 games often don't: they need D3DMetal or DXVK (CrossOver, Game Porting Toolkit). If the Steam window stays black, close it and launch Steam again from the bottle."
+
+# Steam richiede Windows 10 / Steam requires Windows 10
+WINVER="win10"
+# Font Microsoft: senza, l'interfaccia di Steam mostra caratteri mancanti o illeggibili
+# Microsoft fonts: without them, Steam's interface shows missing or unreadable characters
+WINETRICKS="corefonts"
+FONT_SMOOTHING=1
+
+# Installer ufficiale Valve (NSIS: /S = installazione silenziosa) / Official Valve installer (NSIS: /S = silent install)
+INSTALLER_URL="https://cdn.akamai.steamstatic.com/client/installer/SteamSetup.exe"
+INSTALLER_ARGS="/S"
+
+PROGRAM_NAME="Steam"
+PROGRAM_PATH='C:\Program Files (x86)\Steam\steam.exe|C:\Program Files\Steam\steam.exe'
+# Il browser integrato di Steam (CEF) con Wine si blocca o resta nero se usa sandbox e GPU
+# Steam's built-in browser (CEF) freezes or stays black under Wine when it uses the sandbox and the GPU
+PROGRAM_ARGS="-no-cef-sandbox -cef-disable-gpu -cef-disable-gpu-compositing"
+
+REGISTRY='[HKEY_CURRENT_USER\Software\Wine\DllOverrides]
+"gameoverlayrenderer"=""
+"gameoverlayrenderer64"=""'

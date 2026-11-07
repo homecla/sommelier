@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: CC0-1.0
+# Ricetta / Recipe: applicazioni .NET Framework / .NET Framework applications
+ORDER=40
+TITLE="Applicazioni .NET"
+ICON="square.stack.3d.up"
+DESCRIPTION="Installa .NET Framework 4.8 per i programmi che lo richiedono."
+NOTES="L'installazione di .NET 4.8 richiede parecchi minuti: è normale che sembri ferma."
+TITLE_EN=".NET applications"
+DESCRIPTION_EN="Installs .NET Framework 4.8 for programs that need it."
+NOTES_EN="Installing .NET 4.8 takes quite a few minutes: it's normal for it to look stuck."
+WINVER="win10"
+WINETRICKS="corefonts dotnet48"
+FONT_SMOOTHING=1

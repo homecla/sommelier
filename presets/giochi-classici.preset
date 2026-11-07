@@ -1,0 +1,13 @@
+# SPDX-License-Identifier: CC0-1.0
+# Ricetta / Recipe: giochi Windows classici / classic Windows games (DirectX 9 and older)
+ORDER=20
+TITLE="Giochi classici"
+ICON="arcade.stick"
+DESCRIPTION="Per giochi DirectX 9 e precedenti installati da CD/GOG: librerie DirectX, audio XACT e font."
+NOTES="Se un vecchio gioco non parte, prova a impostare Windows XP o 7 in Configurazione Wine."
+TITLE_EN="Classic games"
+DESCRIPTION_EN="For DirectX 9 and older games installed from CD/GOG: DirectX libraries, XACT audio and fonts."
+NOTES_EN="If an old game doesn't start, try setting Windows XP or 7 in Wine Configuration."
+WINVER="win10"
+WINETRICKS="corefonts d3dx9 d3dcompiler_43 xact"
+FONT_SMOOTHING=1

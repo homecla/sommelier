@@ -1,0 +1,6 @@
+.DS_Store
+# repository separato / separate repository
+sommelier-recipes/
+# build
+app/.build/
+app/build/

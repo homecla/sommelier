@@ -1,0 +1,1149 @@
+#!/bin/bash
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# Copyright (C) 2026 homecla
+# sommelier — install, update and use Wine (official WineHQ builds) on macOS with a single command.
+#
+# Official WineHQ macOS builds are published at
+# https://github.com/Gcenx/macOS_Wine_builds (linked from wiki.winehq.org/MacOS).
+# Works with the system bash 3.2, no external dependencies.
+# Language: SOMMELIER_LANG=en|it (default: the Mac's language, falling back to English)
+
+set -u
+
+TOOL_VERSION="1.0.0"
+REPO="Gcenx/macOS_Wine_builds"
+BRANCHES="stable devel staging"
+SUPPORT="${SOMMELIER_HOME:-$HOME/Library/Application Support/Sommelier}"
+# Migration from the previous project name ("WineHQ Manager"): move bottles, recipes and settings
+LEGACY_SUPPORT="$HOME/Library/Application Support/WineHQ Manager"
+if [ -z "${SOMMELIER_HOME:-}" ] && [ -d "$LEGACY_SUPPORT" ] && [ ! -e "$SUPPORT" ]; then
+  if mv "$LEGACY_SUPPORT" "$SUPPORT"; then
+    for _f in "$SUPPORT"/Bottles/*/bottle.json; do
+      [ -f "$_f" ] && sed -i '' "s|$LEGACY_SUPPORT/|$SUPPORT/|g" "$_f"
+    done
+  fi
+fi
+BOTTLES="$SUPPORT/Bottles"
+CACHE="$SUPPORT/cache"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Recipes: user > installed by install.sh > next to the script (repo or app)
+PRESET_DIRS="$SUPPORT/Presets:$HOME/.local/share/sommelier/presets:$SCRIPT_DIR/presets"
+CACHE_TTL=900   # seconds the release list stays valid
+MACHINE=0       # --machine: output for the app (@step/@progress/@error)
+REFRESH=0
+TMPDIR_INSTALL=""
+CURL_PID=""
+
+# GUI apps don't inherit the shell PATH: add Homebrew (cabextract, etc.)
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+
+# ---------------------------------------------------------------- language
+# SOMMELIER_LANG=en|it forces the language; otherwise follow the Mac (fallback: English).
+detect_lang() {
+  case "${SOMMELIER_LANG:-}" in en|it) echo "$SOMMELIER_LANG"; return;; esac
+  local l
+  l=$(defaults read -g AppleLanguages 2>/dev/null | sed -n '2p' | tr -d ' ",')
+  [ -n "$l" ] || l="${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}"
+  case "$l" in it*) echo it;; *) echo en;; esac
+}
+UI_LANG=$(detect_lang)
+t() { if [ "$UI_LANG" = en ]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }   # t "italian" "english"
+# message: Italian (required) and optional English
+msg() { if [ $# -ge 2 ] && [ "$UI_LANG" = en ]; then printf '%s' "$2"; else printf '%s' "$1"; fi; }
+yes_answer() { case "$1" in s|S|si|sì|Si|Sì|y|Y|yes|Yes) return 0;; esac; return 1; }
+
+# ---------------------------------------------------------------- output
+
+if [ -t 1 ]; then B=$'\033[1m'; G=$'\033[32m'; Y=$'\033[33m'; R=$'\033[31m'; D=$'\033[2m'; N=$'\033[0m'
+else B=""; G=""; Y=""; R=""; D=""; N=""; fi
+
+say()  { local m; m=$(msg "$@"); if [ $MACHINE = 1 ]; then echo "@step $m"; else printf '%s==>%s %s\n' "$G" "$N" "$m"; fi; }
+warn() { local m; m=$(msg "$@"); if [ $MACHINE = 1 ]; then echo "@warn $m"; else printf '%s%s:%s %s\n' "$Y" "$(t attenzione warning)" "$N" "$m" >&2; fi; }
+die()  { local m; m=$(msg "$@"); if [ $MACHINE = 1 ]; then echo "@error $m"; else printf '%s%s:%s %s\n' "$R" "$(t errore error)" "$N" "$m" >&2; fi; exit 1; }
+
+progress() { # $1 = percentage
+  if [ $MACHINE = 1 ]; then echo "@progress $1"
+  elif [ -t 2 ]; then
+    local n=$(( $1 / 4 )) bar=""
+    while [ ${#bar} -lt $n ]; do bar="$bar#"; done
+    printf '\r    [%-25s] %3d%%' "$bar" "$1" >&2
+  fi
+}
+
+json_str() { printf '"%s"' "$(printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')"; }
+
+cap() { case "$1" in stable) echo Stable;; devel) echo Devel;; staging) echo Staging;; esac; }
+
+is_branch() { case " $BRANCHES " in *" $1 "*) return 0;; esac; return 1; }
+
+# ---------------------------------------------------------------- config
+
+default_branch() {
+  local b=""
+  [ -f "$SUPPORT/default-branch" ] && b=$(tr -d '[:space:]' < "$SUPPORT/default-branch")
+  is_branch "$b" && echo "$b" || echo stable
+}
+
+resolve_branch() { # "" / default -> default branch
+  local b="${1:-}"
+  if [ -z "$b" ] || [ "$b" = default ]; then default_branch; return; fi
+  is_branch "$b" || die "ramo sconosciuto '$b' (usa: stable, devel, staging)" "unknown branch '$b' (use: stable, devel, staging)"
+  echo "$b"
+}
+
+# ---------------------------------------------------------------- local installations
+
+install_dir() {
+  if [ -n "${SOMMELIER_APPDIR:-}" ]; then mkdir -p "$SOMMELIER_APPDIR" && echo "$SOMMELIER_APPDIR"; return; fi
+  if [ -w /Applications ]; then echo /Applications; else mkdir -p "$HOME/Applications"; echo "$HOME/Applications"; fi
+}
+
+find_app() { # find a branch's app by bundle id, wherever it is installed
+  local want="org.winehq.wine-$1.wine" d a id
+  for d in ${SOMMELIER_APPDIR:+"$SOMMELIER_APPDIR"} /Applications "$HOME/Applications"; do
+    for a in "$d"/Wine*.app; do
+      [ -f "$a/Contents/Info.plist" ] || continue
+      id=$(plutil -extract CFBundleIdentifier raw -o - "$a/Contents/Info.plist" 2>/dev/null)
+      [ "$id" = "$want" ] && { echo "$a"; return 0; }
+    done
+  done
+  return 1
+}
+
+installed_version() {
+  local a; a=$(find_app "$1") || return 1
+  plutil -extract CFBundleShortVersionString raw -o - "$a/Contents/Info.plist" 2>/dev/null
+}
+
+wine_bin() { # path of a branch's wine executable
+  local a; a=$(find_app "$1") || return 1
+  [ -x "$a/Contents/Resources/wine/bin/wine" ] && echo "$a/Contents/Resources/wine/bin/wine"
+}
+
+wine_running() { pgrep -f "$1/Contents/Resources/wine/" >/dev/null 2>&1; }
+
+has_rosetta() { arch -x86_64 /usr/bin/true >/dev/null 2>&1; }
+
+# ---------------------------------------------------------------- remote releases
+
+fetch_releases() {
+  mkdir -p "$CACHE"
+  local f="$CACHE/releases.json" age=999999
+  [ -f "$f" ] && age=$(( $(date +%s) - $(stat -f %m "$f") ))
+  if [ $REFRESH = 0 ] && [ $age -lt $CACHE_TTL ]; then echo "$f"; return 0; fi
+  local auth=()
+  [ -n "${GITHUB_TOKEN:-}" ] && auth=(-H "Authorization: Bearer $GITHUB_TOKEN")
+  if curl -fsSL --max-time 30 -H "Accept: application/vnd.github+json" ${auth[@]+"${auth[@]}"} \
+       "https://api.github.com/repos/$REPO/releases?per_page=100" -o "$f.tmp" 2>/dev/null; then
+    mv "$f.tmp" "$f"
+  else
+    rm -f "$f.tmp"
+    [ -f "$f" ] || die "impossibile contattare GitHub per controllare le versioni (sei online?)" "can't reach GitHub to check versions (are you online?)"
+    warn "GitHub non raggiungibile, uso la lista versioni salvata" "GitHub unreachable, using the saved version list"
+  fi
+  echo "$f"
+}
+
+# Prints the newest build of each branch:  branch<TAB>version<TAB>url<TAB>bytes<TAB>digest<TAB>date
+remote_table() {
+  local f; f=$(fetch_releases) || exit 1
+  osascript -l JavaScript - "$f" <<'JS' 2>/dev/null
+ObjC.import('Foundation');
+function run(argv) {
+  var s = $.NSString.stringWithContentsOfFileEncodingError(argv[0], $.NSUTF8StringEncoding, null);
+  var rel; try { rel = JSON.parse(ObjC.unwrap(s)); } catch (e) { return 'ERR\tjson'; }
+  if (!Array.isArray(rel)) return 'ERR\t' + (rel && rel.message || 'risposta inattesa');
+  var best = {};
+  rel.forEach(function (r) {
+    if (r.draft) return;
+    (r.assets || []).forEach(function (a) {
+      var m = /^wine-(stable|devel|staging)-(.+)-osx64\.tar\.xz$/.exec(a.name);
+      if (!m) return;
+      var d = r.published_at || a.updated_at || '', b = best[m[1]];
+      if (!b || d > b.date) best[m[1]] = {v: m[2], u: a.browser_download_url, s: a.size, g: a.digest || '', date: d};
+    });
+  });
+  return ['stable', 'devel', 'staging'].filter(function (k) { return best[k]; }).map(function (k) {
+    var b = best[k]; return [k, b.v, b.u, b.s, b.g, b.date.slice(0, 10)].join('\t');
+  }).join('\n');
+}
+JS
+}
+
+REMOTE=""
+load_remote() { # call in the main shell (not inside $(...)) before remote_field
+  [ -n "$REMOTE" ] && return 0
+  REMOTE=$(remote_table)
+  case "$REMOTE" in ERR*) rm -f "$CACHE/releases.json"; die "GitHub: $(printf '%s' "$REMOTE" | cut -f2)";; esac
+  [ -n "$REMOTE" ] || die "impossibile leggere la lista delle versioni" "can't read the version list"
+}
+remote_field() { # $1 branch, $2 column (2=version 3=url 4=size 5=digest 6=date)
+  printf '%s\n' "$REMOTE" | awk -F'\t' -v b="$1" -v c="$2" '$1==b {print $c}'
+}
+
+# ---------------------------------------------------------------- commands: versions
+
+cmd_status() {
+  local json=0 remote=0 b
+  for a in "$@"; do case "$a" in
+    --json) json=1;; --remote|-r) remote=1;; --refresh) remote=1; REFRESH=1;;
+    *) die "opzione sconosciuta: $a" "unknown option: $a";; esac; done
+
+  [ $remote = 1 ] && load_remote
+  local ros=false; has_rosetta && ros=true
+  if [ $json = 1 ]; then
+    printf '{"tool":%s,"default":%s,"installDir":%s,"rosetta":%s,"branches":[' \
+      "$(json_str "$TOOL_VERSION")" "$(json_str "$(default_branch)")" "$(json_str "$(install_dir)")" "$ros"
+    local first=1
+    for b in $BRANCHES; do
+      local app ver lat="" date="" run=false
+      app=$(find_app "$b") || app=""
+      ver=$(installed_version "$b") || ver=""
+      [ -n "$app" ] && wine_running "$app" && run=true
+      if [ $remote = 1 ]; then lat=$(remote_field "$b" 2); date=$(remote_field "$b" 6); fi
+      [ $first = 1 ] || printf ','; first=0
+      printf '{"branch":%s,"installed":%s,"path":%s,"latest":%s,"date":%s,"running":%s}' \
+        "$(json_str "$b")" "$(json_str "$ver")" "$(json_str "$app")" "$(json_str "$lat")" "$(json_str "$date")" "$run"
+    done
+    printf ']}\n'
+    return
+  fi
+
+  printf "%ssommelier %s%s   $(t 'ramo predefinito' 'default branch'): %s%s%s\n" "$B" "$TOOL_VERSION" "$N" "$B" "$(default_branch)" "$N"
+  [ "$ros" = true ] || warn "Rosetta 2 non è installato: esegui 'sommelier rosetta'" "Rosetta 2 is not installed: run 'sommelier rosetta'"
+  printf '\n  %-9s %-12s %-12s %s\n' $(t 'RAMO INSTALLATA ULTIMA STATO' 'BRANCH INSTALLED LATEST STATUS')
+  for b in $BRANCHES; do
+    local ver lat="-" st=""
+    ver=$(installed_version "$b") || ver=""
+    [ $remote = 1 ] && lat=$(remote_field "$b" 2)
+    if [ -z "$ver" ]; then st="${D}$(t 'non installata' 'not installed')${N}"
+    elif [ $remote = 1 ] && [ "$ver" != "$lat" ]; then st="${Y}$(t 'aggiornamento disponibile' 'update available')${N}"
+    elif [ $remote = 1 ]; then st="${G}$(t aggiornata 'up to date')${N}"
+    else st="${G}$(t installata installed)${N}"; fi
+    printf '  %-9s %-12s %-12s %s\n' "$b" "${ver:--}" "$lat" "$st"
+  done
+  [ $remote = 1 ] || printf '\n  %s(%s)%s\n' "$D" "$(t 'usa "sommelier status -r" per controllare gli aggiornamenti' 'use "sommelier status -r" to check for updates')" "$N"
+}
+
+cleanup_install() {
+  [ -n "$CURL_PID" ] && kill "$CURL_PID" 2>/dev/null
+  [ -n "$TMPDIR_INSTALL" ] && rm -rf "$TMPDIR_INSTALL"
+}
+
+download() { # url destination expected_bytes
+  curl -fL --retry 3 --retry-delay 2 -sS -o "$2" "$1" &
+  CURL_PID=$!
+  local cur pct last=-1
+  while kill -0 "$CURL_PID" 2>/dev/null; do
+    cur=$(stat -f %z "$2" 2>/dev/null || echo 0)
+    pct=0; [ "$3" -gt 0 ] && pct=$(( cur * 100 / $3 )); [ $pct -gt 100 ] && pct=100
+    [ $pct != $last ] && progress $pct && last=$pct
+    sleep 0.5
+  done
+  wait "$CURL_PID"; local rc=$?; CURL_PID=""
+  [ $MACHINE = 0 ] && [ -t 2 ] && printf '\n' >&2
+  [ $rc = 0 ] || die "download non riuscito (curl codice $rc)" "download failed (curl code $rc)"
+  progress 100
+}
+
+cmd_install() {
+  local force=0 b=""
+  for a in "$@"; do case "$a" in --force|-f) force=1;; -*) die "opzione sconosciuta: $a" "unknown option: $a";; *) b="$a";; esac; done
+  b=$(resolve_branch "$b") || exit 1
+
+  has_rosetta || warn "Rosetta 2 non risulta installato: Wine non partirà finché non esegui 'sommelier rosetta'" "Rosetta 2 doesn't seem to be installed: Wine won't start until you run 'sommelier rosetta'"
+  load_remote
+  local ver url size digest
+  ver=$(remote_field "$b" 2); url=$(remote_field "$b" 3); size=$(remote_field "$b" 4); digest=$(remote_field "$b" 5)
+  [ -n "$url" ] || die "nessuna build macOS trovata per il ramo $b" "no macOS build found for branch $b"
+
+  local cur app dest
+  cur=$(installed_version "$b") || cur=""
+  app=$(find_app "$b") || app=""
+  if [ "$cur" = "$ver" ] && [ $force = 0 ]; then say "Wine $b $ver è già installato e aggiornato" "Wine $b $ver is already installed and up to date"; return 0; fi
+  if [ -n "$app" ] && wine_running "$app"; then
+    die "Wine $b è in uso: chiudi i programmi Windows aperti (o 'sommelier kill') e riprova" "Wine $b is in use: close any open Windows programs (or run 'sommelier kill') and try again"
+  fi
+  if [ -n "$app" ]; then dest=$(dirname "$app"); else dest=$(install_dir); fi
+  [ -w "$dest" ] || die "non ho i permessi di scrittura su $dest" "no write permission on $dest"
+
+  mkdir -p "$SUPPORT"
+  TMPDIR_INSTALL=$(mktemp -d "$SUPPORT/.install.XXXXXX") || die "impossibile creare una cartella temporanea" "can't create a temporary folder"
+  trap cleanup_install EXIT
+  trap 'exit 130' INT TERM
+
+  say "Scarico Wine $(cap "$b") $ver ($(( size / 1048576 )) MB)${cur:+ — aggiorno da $cur}" "Downloading Wine $(cap "$b") $ver ($(( size / 1048576 )) MB)${cur:+ — updating from $cur}"
+  download "$url" "$TMPDIR_INSTALL/wine.tar.xz" "$size"
+
+  if [ -n "$digest" ]; then
+    say "Verifico l'integrità del file (SHA-256)" "Verifying file integrity (SHA-256)"
+    local sum; sum=$(shasum -a 256 "$TMPDIR_INSTALL/wine.tar.xz" | cut -d' ' -f1)
+    [ "sha256:$sum" = "$digest" ] || die "checksum non corrispondente: il file scaricato è corrotto, riprova" "checksum mismatch: the downloaded file is corrupted, try again"
+  fi
+
+  say "Estraggo l'archivio" "Extracting the archive"
+  mkdir "$TMPDIR_INSTALL/x"
+  tar -xJf "$TMPDIR_INSTALL/wine.tar.xz" -C "$TMPDIR_INSTALL/x" || die "estrazione non riuscita" "extraction failed"
+  rm -f "$TMPDIR_INSTALL/wine.tar.xz"
+  local new; new=$(ls -d "$TMPDIR_INSTALL/x"/*.app 2>/dev/null | head -1)
+  [ -n "$new" ] || die "l'archivio non contiene un'app Wine" "the archive doesn't contain a Wine app"
+  xattr -dr com.apple.quarantine "$new" 2>/dev/null
+
+  say "Installo in $dest" "Installing into $dest"
+  local target="$dest/$(basename "$new")"
+  [ -n "$app" ] && mv "$app" "$TMPDIR_INSTALL/old.app"
+  [ -e "$target" ] && mv "$target" "$TMPDIR_INSTALL/old2.app"
+  if ! mv "$new" "$target"; then
+    [ -n "$app" ] && mv "$TMPDIR_INSTALL/old.app" "$app"
+    die "impossibile copiare l'app in $dest" "can't copy the app into $dest"
+  fi
+  say "Fatto: Wine $(cap "$b") $ver installato in $target" "Done: Wine $(cap "$b") $ver installed in $target"
+  [ $MACHINE = 1 ] && echo "@done $b $ver"
+  return 0
+}
+
+cmd_update() {
+  local b="" all=0 any=0
+  for a in "$@"; do case "$a" in --all|-a) all=1;; -*) die "opzione sconosciuta: $a" "unknown option: $a";; *) b="$a";; esac; done
+  REFRESH=1
+  load_remote
+  if [ -n "$b" ]; then cmd_install "$b"; return; fi
+  for b in $BRANCHES; do
+    installed_version "$b" >/dev/null || continue
+    any=1
+    ( cmd_install "$b" ) || warn "aggiornamento di $b non riuscito" "update of $b failed"
+  done
+  if [ $any = 0 ]; then say "Nessuna versione di Wine installata: installo il ramo $(default_branch)" "No Wine version installed: installing the $(default_branch) branch"; cmd_install; fi
+  [ $all = 1 ] && say "Suggerimento: per aggiornare anche questo strumento riesegui ./install.sh" "Tip: to update this tool as well, run ./install.sh again"
+  return 0
+}
+
+cmd_uninstall() {
+  local yes=0 b=""
+  for a in "$@"; do case "$a" in -y|--yes) yes=1;; -*) die "opzione sconosciuta: $a" "unknown option: $a";; *) b="$a";; esac; done
+  [ -n "$b" ] || die "specifica quale ramo disinstallare (stable, devel, staging)" "specify which branch to uninstall (stable, devel, staging)"
+  b=$(resolve_branch "$b") || exit 1
+  local app; app=$(find_app "$b") || die "Wine $b non è installato" "Wine $b is not installed"
+  wine_running "$app" && die "Wine $b è in uso: chiudi i programmi e riprova" "Wine $b is in use: close the programs and try again"
+  if [ $yes = 0 ] && [ -t 0 ]; then
+    printf "$(t 'Rimuovo %s? Le bottiglie non vengono toccate. [s/N] ' 'Remove %s? Bottles are not touched. [y/N] ')" "$app"; read -r r
+    yes_answer "$r" || { t "Annullato." "Cancelled."; echo; return 1; }
+  fi
+  rm -rf "$app" || die "impossibile rimuovere $app" "can't remove $app"
+  say "Wine $b rimosso" "Wine $b removed"
+}
+
+cmd_default() {
+  if [ $# = 0 ]; then default_branch; return; fi
+  local b; b=$(resolve_branch "$1") || exit 1
+  mkdir -p "$SUPPORT"; echo "$b" > "$SUPPORT/default-branch"
+  say "Ramo predefinito: $b" "Default branch: $b"
+}
+
+cmd_rosetta() {
+  if has_rosetta; then say "Rosetta 2 è già installato" "Rosetta 2 is already installed"; return; fi
+  say "Installo Rosetta 2 (potrebbe chiedere la password di amministratore)" "Installing Rosetta 2 (it may ask for the administrator password)"
+  softwareupdate --install-rosetta --agree-to-license || die "installazione di Rosetta non riuscita" "Rosetta installation failed"
+}
+
+# ---------------------------------------------------------------- bottles
+
+valid_name() {
+  case "$1" in ""|.*|*/*|*\"*|*\\*) return 1;; esac
+  [ ${#1} -le 64 ]
+}
+
+bottle_branch() { # branch saved in bottle.json ("default" if missing)
+  local f="$1/bottle.json" b=""
+  [ -f "$f" ] && b=$(grep -o '"branch"[[:space:]]*:[[:space:]]*"[a-z]*"' "$f" | head -1 | sed 's/.*"\([a-z]*\)"$/\1/')
+  echo "${b:-default}"
+}
+
+# Options shared by run/kill/winetricks/bottle create: -b branch, -B bottle, -p prefix, --debug
+CTX_BRANCH=""; CTX_PREFIX=""; CTX_BOTTLE=""; CTX_DEBUG=0; REST=()
+parse_ctx() {
+  REST=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      -b|--branch) CTX_BRANCH="${2:-}"; shift 2;;
+      -B|--bottle) CTX_BOTTLE="${2:-}"; shift 2;;
+      -p|--prefix) CTX_PREFIX="${2:-}"; shift 2;;
+      --debug) CTX_DEBUG=1; shift;;
+      --) shift; REST=("$@"); return;;
+      *) REST=("$@"); return;;
+    esac
+  done
+}
+
+setup_env() { # set WINEPREFIX, WINE*, PATH from the context
+  if [ -n "$CTX_BOTTLE" ]; then
+    CTX_PREFIX="$BOTTLES/$CTX_BOTTLE"
+    [ -d "$CTX_PREFIX" ] || die "la bottiglia '$CTX_BOTTLE' non esiste (sommelier bottle list)" "the bottle '$CTX_BOTTLE' doesn't exist (sommelier bottle list)"
+  fi
+  [ -n "$CTX_PREFIX" ] || CTX_PREFIX="${WINEPREFIX:-$HOME/.wine}"
+  local b="$CTX_BRANCH"
+  [ -z "$b" ] && [ -n "$CTX_BOTTLE" ] && b=$(bottle_branch "$CTX_PREFIX")
+  b=$(resolve_branch "$b") || exit 1
+  WINE=$(wine_bin "$b") || die "Wine $b non è installato: esegui 'sommelier install $b'" "Wine $b is not installed: run 'sommelier install $b'"
+  has_rosetta || die "Rosetta 2 non è installato: esegui 'sommelier rosetta'" "Rosetta 2 is not installed: run 'sommelier rosetta'"
+  export WINE WINEPREFIX="$CTX_PREFIX" WINESERVER="$(dirname "$WINE")/wineserver"
+  export PATH="$(dirname "$WINE"):$PATH"
+  if [ $CTX_DEBUG = 0 ]; then
+    export WINEDEBUG="${WINEDEBUG:--all}" MVK_CONFIG_LOG_LEVEL="${MVK_CONFIG_LOG_LEVEL:-0}"
+  fi
+}
+
+cmd_bottle() {
+  local sub="${1:-list}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    list|ls)
+      mkdir -p "$BOTTLES"
+      local json=0; [ "${1:-}" = --json ] && json=1
+      local first=1 d n
+      [ $json = 1 ] && printf '['
+      for d in "$BOTTLES"/*/; do
+        [ -d "$d" ] || continue; d="${d%/}"; n=$(basename "$d")
+        if [ $json = 1 ]; then
+          [ $first = 1 ] || printf ','; first=0
+          printf '{"name":%s,"branch":%s,"path":%s}' "$(json_str "$n")" "$(json_str "$(bottle_branch "$d")")" "$(json_str "$d")"
+        else printf '  %-28s %-8s %s\n' "$n" "$(bottle_branch "$d")" "$d"; fi
+      done
+      [ $json = 1 ] && printf ']\n'
+      [ $json = 0 ] && [ $first = 1 ] && [ -z "$(ls -A "$BOTTLES" 2>/dev/null)" ] && echo "  $(t 'nessuna bottiglia (crea con: sommelier bottle create NOME)' 'no bottles (create one with: sommelier bottle create NAME)')"
+      return 0;;
+    create|new)
+      local preset="" args=()
+      while [ $# -gt 0 ]; do
+        case "$1" in -P|--preset) preset="${2:-}"; shift 2;; *) args+=("$1"); shift;; esac
+      done
+      [ -z "$preset" ] || preset_file "$preset" >/dev/null || die "preset sconosciuto: '$preset' (sommelier preset list)" "unknown recipe: '$preset' (sommelier preset list)"
+      parse_ctx ${args[@]+"${args[@]}"}; set -- ${REST[@]+"${REST[@]}"}
+      local name="${1:-}"
+      valid_name "$name" || die "nome bottiglia non valido: '$name'" "invalid bottle name: '$name'"
+      local dir="$BOTTLES/$name" br="${CTX_BRANCH:-default}"
+      [ "$br" = default ] || is_branch "$br" || die "ramo sconosciuto '$br'" "unknown branch '$br'"
+      [ -e "$dir" ] && die "la bottiglia '$name' esiste già" "the bottle '$name' already exists"
+      mkdir -p "$dir"
+      printf '{"name":%s,"branch":%s,"created":%s,"programs":[]}\n' \
+        "$(json_str "$name")" "$(json_str "$br")" "$(json_str "$(date -u +%Y-%m-%dT%H:%M:%SZ)")" > "$dir/bottle.json"
+      CTX_BOTTLE="$name"; CTX_BRANCH=""
+      setup_env
+      say "Preparo la bottiglia '$name' (la prima volta può richiedere un minuto)" "Preparing the bottle '$name' (the first time it may take a minute)"
+      "$WINE" wineboot -u >/dev/null 2>&1 || { rm -rf "$dir"; die "inizializzazione della bottiglia non riuscita" "bottle initialization failed"; }
+      "$WINESERVER" -w 2>/dev/null
+      [ -n "$preset" ] && apply_preset "$preset" "$dir"
+      say "Bottiglia '$name' pronta: $dir" "Bottle '$name' ready: $dir";;
+    apply)
+      parse_ctx "$@"; set -- ${REST[@]+"${REST[@]}"}
+      local name="${1:-}" preset="${2:-}"
+      valid_name "$name" && [ -d "$BOTTLES/$name" ] || die "la bottiglia '$name' non esiste" "the bottle '$name' doesn't exist"
+      [ -n "$preset" ] || die "uso: sommelier bottle apply NOME PRESET" "usage: sommelier bottle apply NAME RECIPE"
+      CTX_BOTTLE="$name"; setup_env
+      apply_preset "$preset" "$BOTTLES/$name"
+      say "Configurazione '$preset' applicata a '$name'" "Recipe '$preset' applied to '$name'";;
+    delete|rm)
+      local yes=0 name=""
+      for a in "$@"; do case "$a" in -y|--yes) yes=1;; *) name="$a";; esac; done
+      valid_name "$name" && [ -d "$BOTTLES/$name" ] || die "la bottiglia '$name' non esiste" "the bottle '$name' doesn't exist"
+      if [ $yes = 0 ] && [ -t 0 ]; then
+        printf "$(t 'Elimino la bottiglia "%s" e TUTTI i programmi installati dentro? [s/N] ' 'Delete the bottle "%s" and ALL programs installed in it? [y/N] ')" "$name"; read -r r
+        yes_answer "$r" || { t "Annullato." "Cancelled."; echo; return 1; }
+      fi
+      CTX_BOTTLE="$name"; ( setup_env 2>/dev/null && "$WINESERVER" -k 2>/dev/null )
+      rm -rf "$BOTTLES/$name" && say "Bottiglia '$name' eliminata" "Bottle '$name' deleted";;
+    path) valid_name "${1:-}" || die "specifica il nome" "specify the name"; echo "$BOTTLES/$1";;
+    *) die "sottocomando sconosciuto: bottle $sub (list, create, apply, delete, path)" "unknown subcommand: bottle $sub (list, create, apply, delete, path)";;
+  esac
+}
+
+# ---------------------------------------------------------------- running programs
+
+cmd_run() {
+  parse_ctx "$@"; set -- ${REST[@]+"${REST[@]}"}
+  [ $# -gt 0 ] || die "cosa devo avviare? es: sommelier run -B Giochi setup.exe   oppure   sommelier run winecfg" "what should I run? e.g. sommelier run -B Games setup.exe   or   sommelier run winecfg"
+  setup_env
+  local t="$1"; shift
+  if [ -f "$t" ]; then
+    local lower; lower=$(printf '%s' "$t" | tr '[:upper:]' '[:lower:]')
+    case "$lower" in
+      *.msi)       exec "$WINE" msiexec /i "$t" "$@";;
+      *.bat|*.cmd) cd "$(dirname "$t")" && exec "$WINE" cmd /c "$t" "$@";;
+      *.lnk)       exec "$WINE" start /unix "$t" "$@";;
+      *)           cd "$(dirname "$t")" && exec "$WINE" "$t" "$@";;
+    esac
+  fi
+  exec "$WINE" "$t" "$@"   # built-in command: winecfg, regedit, cmd, control, explorer…
+}
+
+cmd_kill() {
+  parse_ctx "$@"; setup_env
+  "$WINESERVER" -k 2>/dev/null
+  say "Processi Wine terminati in $WINEPREFIX" "Wine processes stopped in $WINEPREFIX"
+}
+
+WT=""
+ensure_winetricks() { # sets $WT
+  local wt="$SUPPORT/bin/winetricks" age=999999
+  mkdir -p "$SUPPORT/bin"
+  [ -f "$wt" ] && age=$(( $(date +%s) - $(stat -f %m "$wt") ))
+  if [ $age -gt 604800 ]; then
+    say "Scarico/aggiorno winetricks" "Downloading/updating winetricks"
+    if curl -fsSL --max-time 60 -o "$wt.tmp" https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks; then
+      mv "$wt.tmp" "$wt"; chmod +x "$wt"
+    else
+      rm -f "$wt.tmp"; [ -f "$wt" ] || die "impossibile scaricare winetricks" "can't download winetricks"
+    fi
+  fi
+  WT="$wt"
+}
+
+cmd_winetricks() {
+  parse_ctx "$@"; set -- ${REST[@]+"${REST[@]}"}
+  setup_env
+  ensure_winetricks
+  command -v cabextract >/dev/null || warn "molti pacchetti winetricks richiedono cabextract: brew install cabextract" "many winetricks packages need cabextract: brew install cabextract"
+  exec "$WT" "$@"
+}
+
+# ---------------------------------------------------------------- recipes (presets)
+#
+# A recipe is a NAME.preset file of KEY="value" lines (see presets/steam.preset).
+# The file is NEVER executed: it is read line by line and only these keys are accepted:
+PRESET_KEYS="TITLE DESCRIPTION NOTES TITLE_EN DESCRIPTION_EN NOTES_EN TITLE_IT DESCRIPTION_IT NOTES_IT ICON ORDER WINVER WINETRICKS FONT_SMOOTHING REGISTRY INSTALLER_URL INSTALLER_ARGS PROGRAM_NAME PROGRAM_PATH PROGRAM_ARGS SOURCE"
+USER_PRESETS="$SUPPORT/Presets"
+# Online recipe catalog (can be changed with: sommelier catalog url URL)
+DEFAULT_CATALOG="https://raw.githubusercontent.com/homecla/sommelier-recipes/main/catalog.json"
+
+preset_file() {
+  local IFS=: d
+  for d in $PRESET_DIRS; do [ -f "$d/$1.preset" ] && { echo "$d/$1.preset"; return 0; }; done
+  return 1
+}
+
+preset_ids() { # list without duplicates, in order of precedence
+  local IFS=: d f id seen=" "
+  for d in $PRESET_DIRS; do
+    for f in "$d"/*.preset; do
+      [ -f "$f" ] || continue
+      id=$(basename "$f" .preset)
+      case "$seen" in *" $id "*) continue;; esac
+      seen="$seen$id "; echo "$id"
+    done
+  done
+}
+
+# Prints "KEY<TAB>value" (newlines encoded as \001). Values in "…" or '…', possibly multi-line.
+parse_preset() {
+  awk '
+    BEGIN { inq = 0 }
+    {
+      line = $0; sub(/\r$/, "", line)
+      if (!inq) {
+        if (line ~ /^[ \t]*(#|$)/) next
+        if (!match(line, /^[A-Z_]+=/)) { print "!\t" NR; next }
+        key = substr(line, 1, RLENGTH - 1); rest = substr(line, RLENGTH + 1); q = substr(rest, 1, 1)
+        if (q == "\"" || q == "\047") {
+          rest = substr(rest, 2); i = index(rest, q)
+          if (i > 0) print key "\t" substr(rest, 1, i - 1)
+          else { val = rest; inq = 1 }
+        } else { sub(/[ \t]*#.*$/, "", rest); print key "\t" rest }
+      } else {
+        i = index(line, q)
+        if (i > 0) { print key "\t" val "\001" substr(line, 1, i - 1); inq = 0 }
+        else val = val "\001" line
+      }
+    }
+    END { if (inq) print "!\tEOF" }' "$1"
+}
+
+# Loads and validates a recipe file. On error, prints the reason and returns 1.
+load_preset_file() {
+  TITLE=""; DESCRIPTION=""; ICON=""; NOTES=""; WINVER=""; WINETRICKS=""; FONT_SMOOTHING=0; REGISTRY=""
+  INSTALLER_URL=""; INSTALLER_ARGS=""; PROGRAM_NAME=""; PROGRAM_PATH=""; PROGRAM_ARGS=""; ORDER=50; SOURCE=""
+  TITLE_EN=""; DESCRIPTION_EN=""; NOTES_EN=""; TITLE_IT=""; DESCRIPTION_IT=""; NOTES_IT=""
+  local k v parsed
+  parsed=$(parse_preset "$1") || { t "file illeggibile" "unreadable file"; echo; return 1; }
+  while IFS=$'\t' read -r k v; do
+    [ -n "$k" ] || continue
+    [ "$k" = "!" ] && { t "riga $v non valida (atteso CHIAVE=\"valore\")" "invalid line $v (expected KEY=\"value\")"; echo; return 1; }
+    case " $PRESET_KEYS " in *" $k "*) ;; *) t "chiave non ammessa: $k" "key not allowed: $k"; echo; return 1;; esac
+    v="${v//$'\001'/$'\n'}"
+    printf -v "$k" '%s' "$v"
+  done <<< "$parsed"
+  case "$WINVER" in ""|win[0-9a-z]*) ;; *) t "WINVER non valido: $WINVER" "invalid WINVER: $WINVER"; echo; return 1;; esac
+  case "$WINETRICKS$INSTALLER_ARGS$PROGRAM_ARGS" in *[\`\$\;\|\&\<\>\*\?\[\]]*) t "caratteri non ammessi in WINETRICKS/INSTALLER_ARGS/PROGRAM_ARGS" "characters not allowed in WINETRICKS/INSTALLER_ARGS/PROGRAM_ARGS"; echo; return 1;; esac
+  case "$INSTALLER_URL" in ""|https://*) ;; *) t "INSTALLER_URL deve essere https://" "INSTALLER_URL must be https://"; echo; return 1;; esac
+  case "$ORDER" in ""|*[!0-9]*) ORDER=50;; esac
+  case "$FONT_SMOOTHING" in 1) ;; *) FONT_SMOOTHING=0;; esac
+  case "$ICON" in *[!a-z0-9.]*) ICON="";; esac
+  # texts in the UI language (base values are kept in BASE_*)
+  BASE_TITLE="$TITLE"; BASE_DESCRIPTION="$DESCRIPTION"; BASE_NOTES="$NOTES"
+  if [ "$UI_LANG" = en ]; then
+    [ -n "$TITLE_EN" ] && TITLE="$TITLE_EN"; [ -n "$DESCRIPTION_EN" ] && DESCRIPTION="$DESCRIPTION_EN"; [ -n "$NOTES_EN" ] && NOTES="$NOTES_EN"
+  else
+    [ -n "$TITLE_IT" ] && TITLE="$TITLE_IT"; [ -n "$DESCRIPTION_IT" ] && DESCRIPTION="$DESCRIPTION_IT"; [ -n "$NOTES_IT" ] && NOTES="$NOTES_IT"
+  fi
+  return 0
+}
+
+load_preset() { # load the recipe with this id into the current shell
+  local f err; f=$(preset_file "$1") || die "preset sconosciuto: '$1' (sommelier preset list)" "unknown recipe: '$1' (sommelier preset list)"
+  err=$(load_preset_file "$f") || die "preset '$1' non valido: $err" "recipe '$1' is not valid: $err"
+  load_preset_file "$f" >/dev/null
+  [ -n "$TITLE" ] || TITLE="$1"
+}
+
+preset_summary() { # describe what the loaded recipe will do
+  printf '  %s%s%s — %s\n' "$B" "$TITLE" "$N" "$DESCRIPTION"
+  [ -n "$WINVER" ]        && printf '    • %s: %s\n' "$(t 'versione di Windows' 'Windows version')" "$WINVER"
+  [ -n "$WINETRICKS" ]    && printf '    • winetricks: %s\n' "$WINETRICKS"
+  [ "$FONT_SMOOTHING" = 1 ] && printf '    • %s\n' "$(t 'antialiasing dei caratteri' 'font smoothing')"
+  [ -n "$REGISTRY" ]      && printf '    • %s:\n%s\n' "$(t 'modifiche al registro' 'registry changes')" "$(printf '%s\n' "$REGISTRY" | sed 's/^/        /')"
+  [ -n "$INSTALLER_URL" ] && printf '    • %s%s%s: %s %s\n' "$Y" "$(t 'scarica ed esegue' 'downloads and runs')" "$N" "$INSTALLER_URL" "$INSTALLER_ARGS"
+  [ -n "$PROGRAM_NAME" ]  && printf '    • %s: %s %s\n' "$(t 'aggiunge il programma' 'adds the program')" "$PROGRAM_NAME" "$PROGRAM_ARGS"
+  [ -n "$SOURCE" ]        && printf '    • %s: %s\n' "$(t fonte source)" "$SOURCE"
+  return 0
+}
+
+valid_preset_id() { case "$1" in ""|*[!a-z0-9_-]*) return 1;; esac; [ ${#1} -le 40 ]; }
+
+fetch_preset() { # $1 file or https URL -> copy to $2
+  case "$1" in
+    https://*) curl -fsSL --max-time 30 -o "$2" "$1" || die "download non riuscito: $1" "download failed: $1";;
+    http://*)  die "usa un indirizzo https://" "use an https:// address";;
+    *)         [ -f "$1" ] || die "file non trovato: $1" "file not found: $1"; cp "$1" "$2";;
+  esac
+  [ "$(wc -c < "$2")" -lt 65536 ] || die "il file è troppo grande per essere un preset" "the file is too large to be a recipe"
+}
+
+cmd_preset() {
+  local sub="${1:-list}"; [ $# -gt 0 ] && shift
+  case "$sub" in
+    list|ls)
+      local json=0 id first=1 f user; [ "${1:-}" = --json ] && json=1
+      [ $json = 1 ] && printf '['
+      for id in $(preset_ids); do
+        f=$(preset_file "$id")
+        load_preset_file "$f" >/dev/null || { warn "preset '$id' non valido, ignorato" "recipe '$id' is not valid, skipped"; continue; }
+        [ -n "$TITLE" ] || TITLE="$id"
+        user=false; [ "$f" = "$USER_PRESETS/$id.preset" ] && user=true
+        if [ $json = 1 ]; then
+          [ $first = 1 ] || printf ','
+          printf '{"id":%s,"title":%s,"description":%s,"icon":%s,"notes":%s,"winver":%s,"winetricks":%s,"installs":%s,"order":%s,"user":%s,"source":%s,"path":%s}' \
+            "$(json_str "$id")" "$(json_str "$TITLE")" "$(json_str "$DESCRIPTION")" "$(json_str "$ICON")" \
+            "$(json_str "$NOTES")" "$(json_str "$WINVER")" "$(json_str "$WINETRICKS")" \
+            "$([ -n "$INSTALLER_URL" ] && echo true || echo false)" "$ORDER" "$user" "$(json_str "$SOURCE")" "$(json_str "$f")"
+        else
+          printf '  %s%-16s%s %s%s\n' "$B" "$id" "$N" "$DESCRIPTION" "$([ $user = true ] && printf ' %s(%s)%s' "$D" "$(t personale personal)" "$N")"
+        fi
+        first=0
+      done
+      [ $json = 1 ] && printf ']\n'
+      [ $first = 1 ] && [ $json = 0 ] && echo "  $(t 'nessuna ricetta trovata' 'no recipes found')"
+      return 0;;
+
+    show)
+      local f; f=$(preset_file "${1:-}") || die "preset sconosciuto: '${1:-}'" "unknown recipe: '${1:-}'"
+      load_preset "$1"; preset_summary; printf '\n  %s%s: %s%s\n' "$D" "$(t file file)" "$f" "$N";;
+
+    add|install)
+      local src="" id="" force=0 yes=0 record=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --id) id="${2:-}"; shift 2;; --source) record="${2:-}"; shift 2;;
+          -f|--force) force=1; shift;; -y|--yes) yes=1; shift;; *) src="$1"; shift;;
+        esac
+      done
+      case "$src" in https://*) [ -n "$record" ] || record="$src";; esac
+      [ -n "$src" ] || die "uso: sommelier preset add FILE|URL [--id nome] [--force]" "usage: sommelier preset add FILE|URL [--id name] [--force]"
+      [ -n "$id" ] || { id=$(basename "${src%%\?*}"); id="${id%.preset}"; }
+      id=$(printf '%s' "$id" | tr '[:upper:]' '[:lower:]')
+      valid_preset_id "$id" || die "nome preset non valido: '$id' (solo a-z 0-9 - _)" "invalid recipe name: '$id' (only a-z 0-9 - _)"
+      mkdir -p "$USER_PRESETS"
+      local tmp="$USER_PRESETS/.$id.tmp" err
+      fetch_preset "$src" "$tmp"
+      if ! err=$(load_preset_file "$tmp"); then rm -f "$tmp"; die "preset non valido: $err" "invalid recipe: $err"; fi
+      load_preset_file "$tmp" >/dev/null
+      if [ -f "$USER_PRESETS/$id.preset" ] && [ $force = 0 ]; then
+        rm -f "$tmp"; die "esiste già un preset personale '$id' (usa --force per sostituirlo)" "a personal recipe '$id' already exists (use --force to replace it)"
+      fi
+      [ $MACHINE = 0 ] && { t "La ricetta farà:" "The recipe will:"; echo; preset_summary; }
+      if [ $yes = 0 ] && [ -t 0 ] && [ -n "$INSTALLER_URL" ]; then
+        printf '%s' "$(t 'Questa ricetta scarica ed esegue un programma da internet. Aggiungerla? [s/N] ' 'This recipe downloads and runs a program from the internet. Add it? [y/N] ')"; read -r r
+        yes_answer "$r" || { rm -f "$tmp"; t "Annullato." "Cancelled."; echo; return 1; }
+      fi
+      if [ -n "$record" ]; then  # remember the source for "preset update"
+        { grep -v '^SOURCE=' "$tmp"; printf 'SOURCE="%s"\n' "$record"; } > "$tmp.2" && mv "$tmp.2" "$tmp"
+        SOURCE="$record"
+      fi
+      mv "$tmp" "$USER_PRESETS/$id.preset"
+      say "Preset '$id' aggiunto${SOURCE:+ (fonte: $SOURCE)}" "Recipe '$id' added${SOURCE:+ (source: $SOURCE)}"
+      [ -n "$INSTALLER_URL" ] && warn "questo preset esegue $INSTALLER_URL: usalo solo se ti fidi della fonte" "this recipe runs $INSTALLER_URL: use it only if you trust the source"
+      return 0;;
+
+    remove|rm|delete)
+      local id="" yes=0
+      for a in "$@"; do case "$a" in -y|--yes) yes=1;; *) id="$a";; esac; done
+      valid_preset_id "$id" || die "uso: sommelier preset remove NOME" "usage: sommelier preset remove NAME"
+      if [ ! -f "$USER_PRESETS/$id.preset" ]; then
+        preset_file "$id" >/dev/null && die "'$id' è un preset integrato: non si elimina (puoi sostituirlo con: sommelier preset add file --id $id)" "'$id' is a built-in recipe and can't be deleted (you can override it with: sommelier preset add file --id $id)"
+        die "preset sconosciuto: '$id'" "unknown recipe: '$id'"
+      fi
+      if [ $yes = 0 ] && [ -t 0 ]; then
+        printf "$(t 'Elimino la ricetta personale "%s"? Le bottiglie già create non cambiano. [s/N] ' 'Delete the personal recipe "%s"? Existing bottles will not change. [y/N] ')" "$id"; read -r r
+        yes_answer "$r" || { t "Annullato." "Cancelled."; echo; return 1; }
+      fi
+      rm -f "$USER_PRESETS/$id.preset"
+      say "Preset '$id' eliminato" "Recipe '$id' deleted"
+      preset_file "$id" >/dev/null && say "Torna attiva la versione integrata di '$id'" "The built-in version of '$id' is active again"
+      return 0;;
+
+    update|upgrade)
+      local only="${1:-}" f id n=0
+      mkdir -p "$USER_PRESETS"
+      for f in "$USER_PRESETS"/*.preset; do
+        [ -f "$f" ] || continue
+        id=$(basename "$f" .preset)
+        [ -z "$only" ] || [ "$only" = "$id" ] || continue
+        load_preset_file "$f" >/dev/null || continue
+        [ -n "$SOURCE" ] || continue
+        n=$((n + 1))
+        local tmp="$USER_PRESETS/.$id.tmp" err
+        if ! curl -fsSL --max-time 30 -o "$tmp" "$SOURCE"; then warn "$id: download non riuscito" "$id: download failed"; rm -f "$tmp"; continue; fi
+        if ! err=$(load_preset_file "$tmp"); then warn "$id: la nuova versione non è valida ($err), tengo quella attuale" "$id: the new version is not valid ($err), keeping the current one"; rm -f "$tmp"; continue; fi
+        { grep -v '^SOURCE=' "$tmp"; printf 'SOURCE="%s"\n' "$SOURCE"; } > "$tmp.2"; rm -f "$tmp"
+        if cmp -s "$tmp.2" "$f"; then rm -f "$tmp.2"; say "$id: già aggiornato" "$id: already up to date"
+        else mv "$tmp.2" "$f"; say "$id: aggiornato" "$id: updated"; fi
+      done
+      [ $n = 0 ] && say "Nessun preset scaricato da internet da aggiornare (i preset integrati si aggiornano con ./install.sh)" "No recipes downloaded from the internet to update (built-in recipes are updated with ./install.sh)"
+      return 0;;
+
+    new|create)
+      local id="${1:-}"
+      valid_preset_id "$id" || die "uso: sommelier preset new NOME (solo a-z 0-9 - _)" "usage: sommelier preset new NAME (only a-z 0-9 - _)"
+      mkdir -p "$USER_PRESETS"
+      local f="$USER_PRESETS/$id.preset"
+      [ -e "$f" ] && die "esiste già: $f" "already exists: $f"
+      cat > "$f" <<EOF
+# Ricetta personale / Personal recipe "$id" — modifica i valori e salva / edit the values and save.
+# Righe / Lines: CHIAVE="valore" / KEY="value"; # = commento / comment.
+TITLE="$id"
+DESCRIPTION="Descrizione breve"
+ICON="shippingbox"               # simbolo SF / SF Symbol name (optional)
+NOTES=""                         # consigli per l'utente / tips for the user
+TITLE_EN="$id"                   # traduzioni / translations (_EN, _IT)
+DESCRIPTION_EN="Short description"
+NOTES_EN=""
+ORDER=60                         # posizione / position in the list
+WINVER="win10"                   # win10, win7, winxp…
+WINETRICKS="corefonts"           # pacchetti / packages (space-separated)
+FONT_SMOOTHING=1                 # 1 = antialiasing / font smoothing
+# INSTALLER_URL="https://…/setup.exe"   # installer da scaricare ed eseguire / installer to download and run
+# INSTALLER_ARGS="/S"                   # installazione silenziosa / silent install arguments
+# PROGRAM_NAME="Nome"                   # programma da aggiungere / program to add to the list
+# PROGRAM_PATH='C:\Program Files\App\app.exe|C:\Program Files (x86)\App\app.exe'
+# PROGRAM_ARGS=""
+# REGISTRY='[HKEY_CURRENT_USER\Software\Wine\DllOverrides]
+# "d3d11"="native,builtin"'
+EOF
+      say "Creato $f" "Created $f"
+      [ $MACHINE = 0 ] && [ -t 1 ] && open -t "$f" 2>/dev/null
+      return 0;;
+
+    validate|check)
+      local json=0 f="" err rc=0 id
+      for a in "$@"; do case "$a" in --json) json=1;; *) f="$a";; esac; done
+      [ -f "$f" ] || die "uso: sommelier preset validate FILE [--json]" "usage: sommelier preset validate FILE [--json]"
+      id=$(basename "$f" .preset)
+      valid_preset_id "$id" || { echo "$f: $(t 'nome file non valido (solo a-z 0-9 - _)' 'invalid file name (only a-z 0-9 - _)')" >&2; return 1; }
+      if ! err=$(load_preset_file "$f"); then echo "$f: $err" >&2; return 1; fi
+      load_preset_file "$f" >/dev/null
+      [ -n "$BASE_TITLE" ] || { echo "$f: $(t 'manca TITLE' 'TITLE is missing')" >&2; rc=1; }
+      [ -n "$BASE_DESCRIPTION" ] || { echo "$f: $(t 'manca DESCRIPTION' 'DESCRIPTION is missing')" >&2; rc=1; }
+      [ -z "$SOURCE" ] || { echo "$f: $(t 'SOURCE non va inserito nelle ricette del catalogo' 'SOURCE must not be set in catalog recipes')" >&2; rc=1; }
+      if [ -n "$INSTALLER_URL" ] && [ -z "$PROGRAM_PATH" ]; then echo "$f: $(t 'con INSTALLER_URL serve PROGRAM_PATH' 'INSTALLER_URL requires PROGRAM_PATH')" >&2; rc=1; fi
+      [ $rc = 0 ] || return 1
+      if [ $json = 1 ]; then
+        printf '{"id":%s,"title":%s,"description":%s,"icon":%s,"notes":%s,"title_en":%s,"description_en":%s,"notes_en":%s,"title_it":%s,"description_it":%s,"notes_it":%s,"winver":%s,"winetricks":%s,"installs":%s,"installer":%s,"order":%s}\n' \
+          "$(json_str "$id")" "$(json_str "$BASE_TITLE")" "$(json_str "$BASE_DESCRIPTION")" "$(json_str "$ICON")" "$(json_str "$BASE_NOTES")" \
+          "$(json_str "$TITLE_EN")" "$(json_str "$DESCRIPTION_EN")" "$(json_str "$NOTES_EN")" \
+          "$(json_str "$TITLE_IT")" "$(json_str "$DESCRIPTION_IT")" "$(json_str "$NOTES_IT")" \
+          "$(json_str "$WINVER")" "$(json_str "$WINETRICKS")" "$([ -n "$INSTALLER_URL" ] && echo true || echo false)" \
+          "$(json_str "$INSTALLER_URL")" "$ORDER"
+      else
+        echo "$f: ok"
+      fi
+      return 0;;
+
+    *) die "sottocomando sconosciuto: preset $sub (list, show, add, update, remove, new, validate)" "unknown subcommand: preset $sub (list, show, add, update, remove, new, validate)";;
+  esac
+}
+
+win_to_unix() { # $1 prefix, $2 C:\... path  ->  Unix path
+  local p="${2#[Cc]:}"
+  printf '%s/drive_c%s' "$1" "$(printf '%s' "$p" | tr '\\' '/')"
+}
+
+bottle_json_update() { # dir program_name path arguments recipe
+  osascript -l JavaScript - "$1/bottle.json" "$2" "$3" "$4" "$5" <<'JS' >/dev/null
+ObjC.import('Foundation');
+function run(a) {
+  var f = a[0], o = {};
+  try { o = JSON.parse(ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(f, $.NSUTF8StringEncoding, null))); } catch (e) {}
+  o.programs = o.programs || [];
+  if (a[1] && !o.programs.some(function (p) { return p.path === a[2]; })) {
+    var p = {name: a[1], path: a[2]};
+    var args = a[3].split(' ').filter(function (x) { return x; });
+    if (args.length) p.args = args;
+    o.programs.push(p);
+  }
+  if (a[4]) o.preset = a[4];
+  $(JSON.stringify(o, null, 2)).writeToFileAtomicallyEncodingError(f, true, $.NSUTF8StringEncoding, null);
+  return 'ok';
+}
+JS
+}
+
+run_reg() { # import .reg text into the current bottle
+  local tmp="$WINEPREFIX/drive_c/windows/temp/sommelier-preset.reg"
+  mkdir -p "$(dirname "$tmp")"
+  printf 'REGEDIT4\n\n%s\n' "$1" > "$tmp"
+  "$WINE" regedit /S 'C:\windows\temp\sommelier-preset.reg' >/dev/null 2>&1 || warn "import del registro non riuscito" "registry import failed"
+  rm -f "$tmp"
+}
+
+apply_preset() { # $1 recipe, $2 bottle folder (environment already set by setup_env)
+  local id="$1" dir="$2"
+  load_preset "$id"
+  say "Applico la configurazione «${TITLE}»" "Applying the recipe “${TITLE}”"
+
+  if [ -n "$WINVER" ]; then
+    say "Imposto la versione di Windows: $WINVER" "Setting the Windows version: $WINVER"
+    "$WINE" winecfg -v "$WINVER" >/dev/null 2>&1 || warn "impossibile impostare $WINVER" "can't set $WINVER"
+  fi
+  if [ "${FONT_SMOOTHING:-0}" = 1 ]; then
+    say "Attivo l'antialiasing dei caratteri (ClearType)" "Enabling font smoothing (ClearType)"
+    run_reg '[HKEY_CURRENT_USER\Control Panel\Desktop]
+"FontSmoothing"="2"
+"FontSmoothingType"=dword:00000002
+"FontSmoothingGamma"=dword:00000578
+"FontSmoothingOrientation"=dword:00000001'
+  fi
+  if [ -n "$REGISTRY" ]; then
+    say "Applico le impostazioni del registro" "Applying registry settings"
+    run_reg "$REGISTRY"
+  fi
+  "$WINESERVER" -w 2>/dev/null
+
+  if [ -n "$WINETRICKS" ]; then
+    ensure_winetricks
+    command -v cabextract >/dev/null || warn "cabextract non trovato (brew install cabextract): alcuni pacchetti potrebbero fallire" "cabextract not found (brew install cabextract): some packages may fail"
+    local v
+    for v in $WINETRICKS; do
+      say "Winetricks: installo $v (può richiedere qualche minuto)" "Winetricks: installing $v (it may take a few minutes)"
+      "$WT" -q "$v" >/dev/null 2>&1 || warn "winetricks: '$v' non installato correttamente" "winetricks: '$v' was not installed correctly"
+    done
+    "$WINESERVER" -w 2>/dev/null
+  fi
+
+  if [ -n "$INSTALLER_URL" ]; then
+    local inst="$CACHE/installers/$(basename "${INSTALLER_URL%%\?*}")" size
+    mkdir -p "$CACHE/installers"
+    if [ ! -s "$inst" ] || [ $(( $(date +%s) - $(stat -f %m "$inst") )) -gt 86400 ]; then
+      size=$(curl -sIL --max-time 20 "$INSTALLER_URL" | awk 'tolower($1)=="content-length:" {v=$2} END {gsub(/\r/,"",v); print v+0}')
+      say "Scarico l'installer di $TITLE" "Downloading the $TITLE installer"
+      rm -f "$inst"
+      download "$INSTALLER_URL" "$inst.part" "${size:-0}"
+      mv "$inst.part" "$inst"
+    fi
+    say "Installo $TITLE" "Installing $TITLE"
+    ( cd "$(dirname "$inst")" && "$WINE" "$inst" $INSTALLER_ARGS >/dev/null 2>&1 ) || warn "l'installer ha restituito un errore" "the installer returned an error"
+    "$WINESERVER" -w 2>/dev/null
+  fi
+
+  local exe="" cand IFS_OLD="$IFS"
+  if [ -n "$PROGRAM_PATH" ]; then
+    IFS='|'
+    for cand in $PROGRAM_PATH; do
+      cand=$(win_to_unix "$dir" "$cand")
+      [ -f "$cand" ] && { exe="$cand"; break; }
+    done
+    IFS="$IFS_OLD"
+    [ -n "$exe" ] || warn "non trovo $PROGRAM_NAME dopo l'installazione: puoi aggiungerlo a mano" "can't find $PROGRAM_NAME after installation: you can add it manually"
+  fi
+  bottle_json_update "$dir" "${exe:+$PROGRAM_NAME}" "$exe" "$PROGRAM_ARGS" "$id"
+  [ -n "$exe" ] && say "Aggiunto ai programmi: $PROGRAM_NAME" "Added to programs: $PROGRAM_NAME"
+  [ -n "$NOTES" ] && [ $MACHINE = 0 ] && printf '\n%s%s:%s %s\n' "$Y" "$(t Nota Note)" "$N" "$NOTES"
+  return 0
+}
+
+cmd_start() { # launch a program saved in the bottle
+  parse_ctx "$@"; set -- ${REST[@]+"${REST[@]}"}
+  [ -n "$CTX_BOTTLE" ] || die "uso: sommelier start -B BOTTIGLIA [programma]" "usage: sommelier start -B BOTTLE [program]"
+  local dir="$BOTTLES/$CTX_BOTTLE"
+  [ -f "$dir/bottle.json" ] || die "la bottiglia '$CTX_BOTTLE' non esiste" "the bottle '$CTX_BOTTLE' doesn't exist"
+  local list
+  list=$(osascript -l JavaScript - "$dir/bottle.json" <<'JS'
+ObjC.import('Foundation');
+function run(a) {
+  var o = JSON.parse(ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(a[0], $.NSUTF8StringEncoding, null)));
+  return (o.programs || []).map(function (p) { return [p.name, p.path, (p.args || []).join(' ')].join('\t'); }).join('\n');
+}
+JS
+)
+  if [ $# = 0 ]; then
+    [ -n "$list" ] || { echo "  $(t "nessun programma salvato in '$CTX_BOTTLE'" "no programs saved in '$CTX_BOTTLE'")"; return 0; }
+    printf '%s\n' "$list" | awk -F'\t' '{printf "  %s\n", $1}'; return 0
+  fi
+  local line; line=$(printf '%s\n' "$list" | awk -F'\t' -v n="$1" 'tolower($1)==tolower(n) {print; exit}')
+  [ -n "$line" ] || die "programma '$1' non trovato in '$CTX_BOTTLE' (sommelier start -B \"$CTX_BOTTLE\")" "program '$1' not found in '$CTX_BOTTLE' (sommelier start -B \"$CTX_BOTTLE\")"
+  local path args; path=$(printf '%s' "$line" | cut -f2); args=$(printf '%s' "$line" | cut -f3)
+  shift
+  # shellcheck disable=SC2086
+  cmd_run -B "$CTX_BOTTLE" ${CTX_BRANCH:+-b "$CTX_BRANCH"} -- "$path" $args "$@"
+}
+
+# ---------------------------------------------------------------- online recipe catalog
+
+catalog_url() {
+  if [ -n "${SOMMELIER_CATALOG:-}" ]; then echo "$SOMMELIER_CATALOG"; return; fi
+  if [ -s "$SUPPORT/catalog-url" ]; then tr -d '[:space:]' < "$SUPPORT/catalog-url"; return; fi
+  echo "$DEFAULT_CATALOG"
+}
+
+CATALOG=""   # \037-separated rows: id title description icon notes installs order file sha256 winver winetricks
+load_catalog() {
+  [ -n "$CATALOG" ] && return 0
+  local url f="$CACHE/catalog.json" age=999999
+  url=$(catalog_url)
+  [ -n "$url" ] || die "catalogo non configurato: sommelier catalog url https://…/catalog.json" "catalog not configured: sommelier catalog url https://…/catalog.json"
+  mkdir -p "$CACHE"
+  [ -f "$f" ] && [ "$(cat "$CACHE/catalog.src" 2>/dev/null)" = "$url" ] && age=$(( $(date +%s) - $(stat -f %m "$f") ))
+  if [ $REFRESH = 1 ] || [ $age -gt $CACHE_TTL ]; then
+    if curl -fsSL --max-time 30 -o "$f.tmp" "$url"; then mv "$f.tmp" "$f"; echo "$url" > "$CACHE/catalog.src"
+    else
+      rm -f "$f.tmp"
+      [ -f "$f" ] && [ "$(cat "$CACHE/catalog.src" 2>/dev/null)" = "$url" ] || die "impossibile scaricare il catalogo: $url" "can't download the catalog: $url"
+      warn "catalogo non raggiungibile, uso la copia salvata" "catalog unreachable, using the saved copy"
+    fi
+  fi
+  CATALOG=$(osascript -l JavaScript - "$f" "$UI_LANG" <<'JS' 2>/dev/null
+ObjC.import('Foundation');
+function run(a) {
+  var c; try { c = JSON.parse(ObjC.unwrap($.NSString.stringWithContentsOfFileEncodingError(a[0], $.NSUTF8StringEncoding, null))); }
+  catch (e) { return 'ERR'; }
+  if (!c || !Array.isArray(c.recipes)) return 'ERR';
+  var clean = function (v) { return String(v == null ? '' : v).replace(/[\t\n\r\x1f]/g, ' '); };
+  return c.recipes.filter(function (r) { return /^[a-z0-9_-]{1,40}$/.test(r.id) && /^[A-Za-z0-9_\/.-]+\.preset$/.test(r.file) && !/\.\./.test(r.file) && /^[0-9a-f]{64}$/.test(r.sha256); })
+    .map(function (r) {
+      var loc = function (k) { return r[k + '_' + a[1]] || r[k]; };
+      return [r.id, loc('title'), loc('description'), r.icon, loc('notes'), r.installs ? 'true' : 'false', r.order || 50, r.file, r.sha256, r.winver, r.winetricks].map(clean).join('\x1f'); })
+    .join('\n');
+}
+JS
+)
+  [ "$CATALOG" = ERR ] && { rm -f "$f"; die "il catalogo scaricato non è valido" "the downloaded catalog is not valid"; }
+  return 0
+}
+
+catalog_field() { printf '%s\n' "$CATALOG" | awk -F'\037' -v id="$1" -v c="$2" '$1==id {print $c; exit}'; }
+catalog_recipe_url() { local u; u=$(catalog_url); printf '%s%s' "${u%/*}/" "$1"; }
+
+# state of a catalog recipe: available | installed | update | builtin
+catalog_state() {
+  local id="$1" sha="$2" f="$USER_PRESETS/$1.preset"
+  if [ -f "$f" ]; then
+    local cur; cur=$(grep -v '^SOURCE=' "$f" | shasum -a 256 | cut -d' ' -f1)
+    if grep -q "^SOURCE=\"$(catalog_recipe_url "$(catalog_field "$id" 8)")\"" "$f"; then
+      [ "$cur" = "$sha" ] && echo installed || echo update
+    else echo installed; fi
+  elif preset_file "$id" >/dev/null; then echo builtin
+  else echo available; fi
+}
+
+catalog_install() { # id
+  local id="$1" file sha url tmp got
+  file=$(catalog_field "$id" 8); sha=$(catalog_field "$id" 9)
+  [ -n "$file" ] || die "ricetta '$id' non presente nel catalogo" "recipe '$id' is not in the catalog"
+  url=$(catalog_recipe_url "$file")
+  mkdir -p "$USER_PRESETS"; tmp="$USER_PRESETS/.$id.download"
+  say "Scarico la ricetta '$id'" "Downloading the recipe '$id'"
+  curl -fsSL --max-time 30 -o "$tmp" "$url" || { rm -f "$tmp"; die "download non riuscito: $url" "download failed: $url"; }
+  got=$(shasum -a 256 "$tmp" | cut -d' ' -f1)
+  [ "$got" = "$sha" ] || { rm -f "$tmp"; die "impronta SHA-256 non corrispondente per '$id': ricetta rifiutata" "SHA-256 fingerprint mismatch for '$id': recipe rejected"; }
+  ( cmd_preset add "$tmp" --id "$id" --source "$url" --force -y ) || { rm -f "$tmp"; exit 1; }
+  rm -f "$tmp"
+}
+
+cmd_catalog() {
+  local sub=list
+  case "${1:-}" in ""|-*) ;; *) sub="$1"; shift;; esac
+  case "$sub" in
+    list|ls)
+      local json=0 first=1 id title desc icon notes inst order file sha winver wt st
+      for a in "$@"; do case "$a" in --json) json=1;; --refresh|-r) REFRESH=1;; esac; done
+      load_catalog
+      [ $json = 1 ] && printf '{"url":%s,"recipes":[' "$(json_str "$(catalog_url)")"
+      while IFS=$'\037' read -r id title desc icon notes inst order file sha winver wt; do
+        [ -n "$id" ] || continue
+        st=$(catalog_state "$id" "$sha")
+        case "$order" in ''|*[!0-9]*) order=50;; esac
+        if [ $json = 1 ]; then
+          [ $first = 1 ] || printf ','
+          printf '{"id":%s,"title":%s,"description":%s,"icon":%s,"notes":%s,"installs":%s,"order":%s,"winver":%s,"winetricks":%s,"state":%s}' \
+            "$(json_str "$id")" "$(json_str "$title")" "$(json_str "$desc")" "$(json_str "$icon")" "$(json_str "$notes")" \
+            "$([ "$inst" = true ] && echo true || echo false)" "$order" \
+            "$(json_str "$winver")" "$(json_str "$wt")" "$(json_str "$st")"
+        else
+          case "$st" in installed) st="${G}$(t installata installed)${N}";; update) st="${Y}$(t aggiornamento update)${N}";; builtin) st="${D}$(t integrata built-in)${N}";; *) st="";; esac
+          printf '  %s%-16s%s %s %s\n' "$B" "$id" "$N" "$desc" "$st"
+        fi
+        first=0
+      done <<< "$CATALOG"
+      [ $json = 1 ] && printf ']}\n'
+      [ $json = 0 ] && [ $first = 1 ] && echo "  $(t 'il catalogo è vuoto' 'the catalog is empty')"
+      return 0;;
+    install|add)
+      [ $# -gt 0 ] || die "uso: sommelier catalog install ID [ID…]" "usage: sommelier catalog install ID [ID…]"
+      REFRESH=1; load_catalog
+      local id; for id in "$@"; do catalog_install "$id"; done;;
+    update|upgrade)
+      REFRESH=1; load_catalog
+      local id rest sha n=0
+      while IFS=$'\037' read -r id rest; do
+        [ -n "$id" ] || continue
+        sha=$(catalog_field "$id" 9)
+        if [ "$(catalog_state "$id" "$sha")" = update ]; then catalog_install "$id"; n=$((n + 1)); fi
+      done <<< "$CATALOG"
+      [ $n = 0 ] && say "Le ricette del catalogo sono già aggiornate" "Catalog recipes are already up to date"
+      return 0;;
+    remove|rm) cmd_preset remove "$@";;
+    url)
+      if [ $# = 0 ]; then u=$(catalog_url); echo "${u:-($(t 'non configurato' 'not configured'))}"; return; fi
+      mkdir -p "$SUPPORT"
+      case "$1" in
+        --reset) rm -f "$SUPPORT/catalog-url"; say "Catalogo: $(catalog_url)" "Catalog: $(catalog_url)";;
+        https://*|file://*) echo "$1" > "$SUPPORT/catalog-url"; rm -f "$CACHE/catalog.json"; say "Catalogo impostato: $1" "Catalog set: $1";;
+        *) die "l'indirizzo del catalogo deve iniziare con https://" "the catalog address must start with https://";;
+      esac;;
+    *) die "sottocomando sconosciuto: catalog $sub (list, install, update, remove, url)" "unknown subcommand: catalog $sub (list, install, update, remove, url)";;
+  esac
+}
+
+cmd_doctor() {
+  printf '%ssommelier %s — %s%s\n' "$B" "$TOOL_VERSION" "$(t 'controllo del sistema' 'system check')" "$N"
+  printf '  macOS        %s (%s)\n' "$(sw_vers -productVersion)" "$(uname -m)"
+  if has_rosetta; then printf '  Rosetta 2    %sok%s\n' "$G" "$N"; else printf '  Rosetta 2    %s%s%s → sommelier rosetta\n' "$R" "$(t mancante missing)" "$N"; fi
+  local d; d=$(install_dir)
+  if [ -w "$d" ]; then printf '  %-12s %s %s(%s)%s\n' "$(t 'Cartella app' 'App folder')" "$d" "$G" "$(t scrivibile writable)" "$N"; else printf '  %-12s %s %s(%s)%s\n' "$(t 'Cartella app' 'App folder')" "$d" "$R" "$(t 'NON scrivibile' 'NOT writable')" "$N"; fi
+  local b; for b in $BRANCHES; do
+    local a; a=$(find_app "$b") && printf '  Wine %-8s %s\n' "$b" "$a"
+  done
+  if command -v cabextract >/dev/null; then printf '  cabextract   %sok%s\n' "$G" "$N"; else printf '  cabextract   %s%s%s (%s) → brew install cabextract\n' "$Y" "$(t mancante missing)" "$N" "$(t 'serve a winetricks' 'needed by winetricks')"; fi
+  if curl -fsS --max-time 10 -o /dev/null https://api.github.com/; then printf '  GitHub       %s%s%s\n' "$G" "$(t raggiungibile reachable)" "$N"; else printf '  GitHub       %s%s%s\n' "$R" "$(t 'non raggiungibile' unreachable)" "$N"; fi
+  printf '  %-12s %s\n' "$(t Dati Data)" "$SUPPORT"
+}
+
+usage() {
+  if [ "$UI_LANG" = en ]; then cat <<EOF
+${B}sommelier${N} $TOOL_VERSION — manages Wine (official WineHQ builds) on macOS
+
+${B}Wine versions${N}
+  sommelier install [stable|devel|staging] [--force]   download and install (default: default branch)
+  sommelier update [branch]                            update installed versions (or install one)
+  sommelier uninstall <branch> [-y]                    remove a version
+  sommelier status [-r] [--json]                       installed versions (-r: check for updates)
+  sommelier default [branch]                           show/set the default branch
+
+${B}Bottles (separate Wine prefixes)${N}
+  sommelier bottle list | create NAME [-b branch] [-P recipe] | apply NAME RECIPE | delete NAME | path NAME
+
+${B}Recipes${N}
+  sommelier preset list | show NAME                    e.g. sommelier bottle create Steam -P steam
+  sommelier preset add FILE|URL [--id name] [--force]  add a recipe (from a file or https://)
+  sommelier preset update [name]                       re-download recipes added from a URL
+  sommelier preset remove NAME                         delete a personal recipe
+  sommelier preset new NAME                            create a personal recipe to edit
+
+${B}Online recipe catalog${N}
+  sommelier catalog [-r] [--json]                      available recipes (-r: download again)
+  sommelier catalog install ID… | update | remove ID   install / update / delete from the catalog
+  sommelier catalog url [URL|--reset]                  show or set the catalog address
+
+${B}Running programs${N}
+  sommelier run [-B bottle | -p prefix] [-b branch] [--debug] <file.exe|.msi|command> [arguments]
+  sommelier winetricks [-B bottle] <packages>          e.g. sommelier winetricks -B Games corefonts vcrun2022
+  sommelier start -B bottle [program]                  launch a saved program (e.g. sommelier start -B Steam Steam)
+  sommelier kill [-B bottle]                           stop Wine processes
+
+${B}System${N}
+  sommelier doctor        check Rosetta, permissions, dependencies
+  sommelier rosetta       install Rosetta 2
+
+Without a bottle, run uses \$WINEPREFIX or ~/.wine. Data in: $SUPPORT
+Language: SOMMELIER_LANG=en|it (default: system language)
+EOF
+  return; fi
+  cat <<EOF
+${B}sommelier${N} $TOOL_VERSION — gestisce Wine (build ufficiali WineHQ) su macOS
+
+${B}Versioni di Wine${N}
+  sommelier install [stable|devel|staging] [--force]   scarica e installa (default: ramo predefinito)
+  sommelier update [ramo]                              aggiorna le versioni installate (o ne installa una)
+  sommelier uninstall <ramo> [-y]                      rimuove una versione
+  sommelier status [-r] [--json]                       versioni installate (-r: controlla aggiornamenti)
+  sommelier default [ramo]                             mostra/imposta il ramo predefinito
+
+${B}Bottiglie (prefissi Wine separati)${N}
+  sommelier bottle list | create NOME [-b ramo] [-P ricetta] | apply NOME RICETTA | delete NOME | path NOME
+
+${B}Ricette${N}
+  sommelier preset list | show NOME                    es: sommelier bottle create Steam -P steam
+  sommelier preset add FILE|URL [--id nome] [--force]  aggiunge una ricetta (da file o https://)
+  sommelier preset update [nome]                       riscarica le ricette aggiunte da URL
+  sommelier preset remove NOME                         elimina una ricetta personale
+  sommelier preset new NOME                            crea una ricetta personale da modificare
+
+${B}Catalogo online delle ricette${N}
+  sommelier catalog [-r] [--json]                      ricette disponibili (-r: riscarica)
+  sommelier catalog install ID… | update | remove ID   installa / aggiorna / elimina dal catalogo
+  sommelier catalog url [URL|--reset]                  mostra o imposta l'indirizzo del catalogo
+
+${B}Esecuzione${N}
+  sommelier run [-B bottiglia | -p prefisso] [-b ramo] [--debug] <file.exe|.msi|comando> [argomenti]
+  sommelier winetricks [-B bottiglia] <pacchetti>      es: sommelier winetricks -B Giochi corefonts vcrun2022
+  sommelier start -B bottiglia [programma]             avvia un programma salvato (es: sommelier start -B Steam Steam)
+  sommelier kill [-B bottiglia]                        termina i processi Wine
+
+${B}Sistema${N}
+  sommelier doctor        controlla Rosetta, permessi, dipendenze
+  sommelier rosetta       installa Rosetta 2
+
+Senza bottiglia, run usa \$WINEPREFIX o ~/.wine. Dati in: $SUPPORT
+Lingua: SOMMELIER_LANG=it|en (predefinita: lingua del sistema)
+EOF
+}
+
+# ---------------------------------------------------------------- main
+
+[ "${1:-}" = --machine ] && { MACHINE=1; shift; }
+cmd="${1:-help}"; [ $# -gt 0 ] && shift
+case "$cmd" in
+  install|i)        cmd_install "$@";;
+  update|upgrade|u) cmd_update "$@";;
+  uninstall|remove) cmd_uninstall "$@";;
+  status|st|list)   cmd_status "$@";;
+  default)          cmd_default "$@";;
+  bottle|bottles)   cmd_bottle "$@";;
+  run)              cmd_run "$@";;
+  start)            cmd_start "$@";;
+  preset|presets)   cmd_preset "$@";;
+  catalog|catalogo) cmd_catalog "$@";;
+  winetricks|wt)    cmd_winetricks "$@";;
+  kill)             cmd_kill "$@";;
+  doctor)           cmd_doctor;;
+  rosetta)          cmd_rosetta;;
+  version|--version|-v) echo "sommelier $TOOL_VERSION";;
+  help|--help|-h)   usage;;
+  *) die "comando sconosciuto: $cmd (vedi: sommelier help)" "unknown command: $cmd (see: sommelier help)";;
+esac

@@ -1,0 +1,684 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Sommelier user guide: install and use Wine on macOS (English / Italiano).">
+<title>Sommelier User Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky top bar · left table of contents (desktop) · one reading column of ~68ch */
+:root {
+  --bg: #f7f6f8;
+  --surface: #ffffff;
+  --fg: #1d1a20;
+  --muted: #5f5866;
+  --line: #e2dee6;
+  --accent: #8a1c3c;          /* burgundy, from the app icon */
+  --accent-soft: #f4e4ea;
+  --code-bg: #f0edf2;
+  --note-bg: #fbf3f6;
+  --display: "Bricolage Grotesque", "Avenir Next", "Helvetica Neue", Arial, sans-serif;
+  --body: "Source Sans 3", -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --measure: 68ch;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #141217; --surface: #1c1920; --fg: #ece8ef; --muted: #a59dad; --line: #302b36;
+    --accent: #e0708f; --accent-soft: #3a1a26; --code-bg: #221e27; --note-bg: #26161d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #141217; --surface: #1c1920; --fg: #ece8ef; --muted: #a59dad; --line: #302b36;
+  --accent: #e0708f; --accent-soft: #3a1a26; --code-bg: #221e27; --note-bg: #26161d;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+html { scroll-behavior: smooth; scroll-padding-top: calc(72px + env(safe-area-inset-top, 0px)); }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+body {
+  background: var(--bg); color: var(--fg);
+  font: 17px/1.6 var(--body);
+  -webkit-font-smoothing: antialiased;
+}
+body::before {
+  content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px);
+  z-index: 10; background: var(--surface);
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+
+/* top bar */
+.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+}
+.bar-inner {
+  max-width: 1180px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 12px;
+  display: flex; align-items: center; gap: 12px;
+}
+.brand { display: flex; align-items: center; gap: 10px; font: 700 19px/1 var(--display); color: var(--fg); text-decoration: none; }
+.brand svg { flex: none; }
+.brand small { font: 500 14px/1 var(--body); color: var(--muted); }
+.spacer { flex: 1; }
+.lang { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; padding: 3px; background: var(--bg); }
+.lang button {
+  font: 600 13px/1 var(--body); letter-spacing: .04em; color: var(--muted);
+  background: transparent; border: 0; border-radius: 999px; padding: 7px 12px; cursor: pointer;
+}
+.lang button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+
+/* page grid */
+.page {
+  max-width: 1180px; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 80px;
+  display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 56px;
+}
+@media (max-width: 860px) { .page { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-block: 24px 64px; } }
+
+.toc { position: sticky; top: calc(84px + env(safe-area-inset-top, 0px)); align-self: start; font-size: 15px; }
+.toc h2 { font: 600 12px/1 var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+.toc ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; counter-reset: s; }
+.toc li { counter-increment: s; }
+.toc a { display: flex; gap: 10px; padding: 5px 8px; border-radius: 6px; color: var(--fg); text-decoration: none; }
+.toc a::before { content: counter(s); color: var(--muted); font: 500 13px/1.6 var(--mono); min-width: 1.4em; }
+.toc a:hover { background: var(--accent-soft); }
+@media (max-width: 860px) {
+  .toc { position: static; border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--surface); }
+  .toc ol { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+}
+
+/* article */
+article { min-width: 0; max-width: var(--measure); }
+.lede { margin-bottom: 36px; }
+.eyebrow { font: 600 12px/1 var(--body); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin: 0 0 12px; }
+h1 { font: 700 clamp(34px, 6vw, 52px)/1.05 var(--display); letter-spacing: -0.02em; margin: 0 0 16px; text-wrap: balance; }
+.lede p { font-size: 19px; color: var(--muted); margin: 0; }
+h2 {
+  font: 700 28px/1.2 var(--display); letter-spacing: -0.01em; text-wrap: balance;
+  margin: 56px 0 14px; padding-top: 22px; border-top: 1px solid var(--line);
+  display: flex; gap: 12px; align-items: baseline;
+}
+h2 .n { font: 500 15px/1 var(--mono); color: var(--accent); }
+h3 { font: 600 20px/1.3 var(--display); margin: 32px 0 8px; text-wrap: balance; }
+p, ul, ol { margin: 0 0 14px; }
+li { margin-bottom: 4px; }
+strong { font-weight: 600; }
+code { font: 0.86em var(--mono); background: var(--code-bg); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+kbd { font: 500 0.82em var(--mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; background: var(--surface); }
+
+.code { position: relative; margin: 0 0 18px; }
+.code pre {
+  margin: 0; overflow-x: auto; background: var(--code-bg); border: 1px solid var(--line);
+  border-radius: 10px; padding: 14px 16px; font: 14px/1.6 var(--mono);
+}
+.code pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; }
+.code .c { color: var(--muted); }
+.copy {
+  position: absolute; top: 8px; right: 8px; font: 600 12px/1 var(--body); color: var(--muted);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px; cursor: pointer;
+}
+.copy:hover { color: var(--accent); border-color: var(--accent); }
+
+.table { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 15.5px; }
+th, td { text-align: left; vertical-align: top; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: 0; }
+th { font: 600 12px/1.4 var(--body); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+td:first-child { font-weight: 600; white-space: nowrap; }
+
+.note { background: var(--note-bg); border: 1px solid var(--accent-soft); border-radius: 10px; padding: 14px 16px; margin: 0 0 18px; font-size: 16px; }
+.note p:last-child { margin: 0; }
+
+figure { margin: 18px 0 26px; }
+figure img { display: block; width: 100%; height: auto; border-radius: 10px; border: 1px solid var(--line); background: #141217; }
+figcaption { font-size: 14px; color: var(--muted); margin-top: 8px; }
+
+.steps { counter-reset: st; list-style: none; padding: 0; display: grid; gap: 10px; }
+.steps li { counter-increment: st; display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 10px; margin: 0; }
+.steps li::before {
+  content: counter(st); width: 26px; height: 26px; border-radius: 50%; background: var(--accent-soft);
+  color: var(--accent); font: 600 13px/26px var(--mono); text-align: center; margin-top: 1px;
+}
+
+footer.legal { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 14.5px; }
+</style>
+</head>
+<body>
+
+<header class="bar">
+  <div class="bar-inner">
+    <a class="brand" href="#top" aria-label="Sommelier">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="7" fill="var(--accent)"/><path d="M10 22.5h8c1.7 0 2.6-1.8 2.1-3.3-.8-2.7-3.6-3.7-4.6-5.3V9.6c.7-.3 1.1-.8 1.1-1.5h-5.2c0 .7.4 1.2 1.1 1.5v4.3c-1 1.6-3.8 2.6-4.6 5.3-.5 1.5.4 3.3 2.1 3.3z" fill="#fff"/></svg>
+      Sommelier <small data-en="User Guide" data-it="Guida utente">User Guide</small>
+    </a>
+    <span class="spacer"></span>
+    <div class="lang" role="group" aria-label="Language / Lingua">
+      <button type="button" id="btn-en" data-lang="en" aria-pressed="true">EN</button>
+      <button type="button" id="btn-it" data-lang="it" aria-pressed="false">IT</button>
+    </div>
+  </div>
+</header>
+
+<!-- ============================== ENGLISH ============================== -->
+<div class="page" lang="en" id="page-en">
+  <nav class="toc" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#en-ideas">Key ideas</a></li>
+      <li><a href="#en-req">Requirements</a></li>
+      <li><a href="#en-install">Installation</a></li>
+      <li><a href="#en-app">Using the app</a></li>
+      <li><a href="#en-steam">Example: Steam</a></li>
+      <li><a href="#en-cli">Command line</a></li>
+      <li><a href="#en-update">Staying up to date</a></li>
+      <li><a href="#en-trouble">Troubleshooting</a></li>
+      <li><a href="#en-uninstall">Uninstalling</a></li>
+      <li><a href="#en-files">Where files are stored</a></li>
+    </ol>
+  </nav>
+  <article>
+    <div class="lede" id="top">
+      <p class="eyebrow">A Wine manager for macOS</p>
+      <h1>Run Windows programs on your Mac</h1>
+      <p>Sommelier installs, updates and runs the official WineHQ builds for macOS. This guide explains how to install it and how to use it, from the app and from the Terminal.</p>
+    </div>
+
+    <h2 id="en-ideas"><span class="n">01</span>Key ideas</h2>
+    <div class="table"><table>
+      <thead><tr><th>Term</th><th>Meaning</th></tr></thead>
+      <tbody>
+        <tr><td>Wine</td><td>Software that runs Windows programs on macOS by translating Windows calls into Mac ones. It is not an emulator or a virtual machine.</td></tr>
+        <tr><td>Branch</td><td>The Wine version you install: <strong>Stable</strong> (most tested, recommended), <strong>Devel</strong> (newer, every two weeks) or <strong>Staging</strong> (Devel plus experimental patches). You can install several and choose the default one.</td></tr>
+        <tr><td>Bottle</td><td>A separate “Windows PC” with its own <code>C:</code> drive, settings and programs. Use a different bottle for each program or game that needs special settings, so they don't interfere with each other.</td></tr>
+        <tr><td>Recipe</td><td>A ready-made setup for a bottle: Windows version, components (fonts, Visual C++, .NET, DirectX…) and, when needed, the automatic installation of a program such as Steam.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="en-req"><span class="n">02</span>Requirements</h2>
+    <ul>
+      <li>A Mac running <strong>macOS 14 Sonoma or later</strong>.</li>
+      <li>On Macs with <strong>Apple Silicon</strong> (M1, M2, M3…): <strong>Rosetta 2</strong>, because Wine builds for macOS are made for Intel. The installer offers to install it if it's missing.</li>
+      <li>An internet connection to download Wine, recipes and programs.</li>
+      <li>To build the app: Apple's <strong>Command Line Tools</strong> (<code>xcode-select --install</code>) or Xcode.</li>
+    </ul>
+
+    <h2 id="en-install"><span class="n">03</span>Installation</h2>
+    <h3>Install with one command</h3>
+    <p>Open <strong>Terminal</strong> and run:</p>
+    <div class="code"><pre><code>git clone https://github.com/homecla/sommelier.git
+cd sommelier
+./install.sh</code></pre></div>
+    <p>The installer:</p>
+    <ol class="steps">
+      <li><span>installs the <code>sommelier</code> command in <code>~/.local/bin</code>;</span></li>
+      <li><span>installs Rosetta 2 if it is needed and missing;</span></li>
+      <li><span>builds the <strong>Sommelier</strong> app and copies it into <code>/Applications</code>;</span></li>
+      <li><span>installs <strong>Wine Stable</strong>, or updates the Wine versions you already have.</span></li>
+    </ol>
+    <p>Useful options:</p>
+    <div class="code"><pre><code>./install.sh --branch devel   <span class="c"># use Devel as the default branch</span>
+./install.sh --no-wine        <span class="c"># install only the command and the app</span></code></pre></div>
+    <div class="note"><p>If the installer says <code>~/.local/bin</code> is not in your PATH, run the line it suggests (it adds the folder to <code>~/.zprofile</code>), then open a new Terminal window.</p></div>
+    <h3>First launch</h3>
+    <p>Open <strong>Sommelier</strong> from Launchpad or from the Applications folder. On the first launch the app checks which Wine versions are installed and whether updates are available.</p>
+    <p>The app speaks <strong>English</strong> and <strong>Italian</strong>. By default it follows your Mac's language; to change it, open <strong>Sommelier → Settings</strong> (<kbd>⌘,</kbd>) and choose <strong>Language</strong>.</p>
+
+    <h2 id="en-app"><span class="n">04</span>Using the app</h2>
+    <p>The sidebar has four areas: <strong>Versions</strong>, <strong>Recipes</strong>, your <strong>Bottles</strong> and <strong>Activity</strong>.</p>
+
+    <h3>Wine versions</h3>
+    <figure><img src="images/en/versions.png" alt="The Versions section with Wine Stable installed and Devel and Staging available" width="900" height="612" loading="lazy"><figcaption>Versions: installed and latest version for each branch.</figcaption></figure>
+    <ul>
+      <li><strong>Install</strong> downloads the version, verifies it (SHA-256) and installs it in <code>/Applications</code>.</li>
+      <li><strong>Update to …</strong> appears when a newer version is out. <strong>Update All</strong> updates every branch at once.</li>
+      <li><strong>Options</strong> → <em>Use as Default</em>, <em>Show in Finder</em>, <em>Reinstall</em>, <em>Uninstall…</em></li>
+      <li>The toolbar button (<kbd>⌘R</kbd>) checks for updates again.</li>
+    </ul>
+    <p>Bottles and installed programs are never touched by updates.</p>
+
+    <h3>Creating a bottle</h3>
+    <p>Click <strong>New Bottle</strong> at the bottom of the sidebar (<kbd>⌘N</kbd>).</p>
+    <figure><img src="images/en/newbottle.png" alt="The New Bottle sheet with the Empty, Steam, Classic games, Applications and .NET applications setups" width="560" height="528" loading="lazy" style="max-width:560px"><figcaption>New Bottle: pick a setup, a name and a Wine version.</figcaption></figure>
+    <ol class="steps">
+      <li><span>Choose a <strong>setup</strong>: <em>Empty</em> (just Wine) or one of the recipes (Steam, Classic games, Applications, .NET applications…). Recipes marked <strong>Install</strong> also download and install a program.</span></li>
+      <li><span>Type a <strong>Name</strong> (for example “Games” or “Office”).</span></li>
+      <li><span>Choose the <strong>Wine Version</strong>: <em>Default</em> follows the default branch, or pick a specific one.</span></li>
+      <li><span>Click <strong>Create</strong> (or <strong>Create and Install</strong>). Progress appears in the bottle and in <strong>Activity</strong>. The first time, preparing a bottle takes about a minute.</span></li>
+    </ol>
+
+    <h3>Running Windows programs</h3>
+    <figure><img src="images/en/bottle.png" alt="A bottle with the drop area, the program list and the tools" width="900" height="612" loading="lazy"><figcaption>A bottle: drop area, programs and tools.</figcaption></figure>
+    <p>Open a bottle from the sidebar. To run a program you can:</p>
+    <ul>
+      <li><strong>drag</strong> a <code>.exe</code>, <code>.msi</code>, <code>.bat</code> or <code>.lnk</code> file onto the dashed area;</li>
+      <li><strong>click</strong> the dashed area and choose the file;</li>
+      <li>in Finder, right-click a <code>.exe</code> file → <strong>Open With → Sommelier</strong>, then choose the bottle;</li>
+      <li>use <strong>File → Run a Windows Program…</strong> (<kbd>⌘O</kbd>).</li>
+    </ul>
+    <p>Installers (<code>setup.exe</code>, <code>.msi</code>) run like any other program: follow their windows as you would on Windows.</p>
+
+    <h3>The program list</h3>
+    <p>After installing something, click <strong>Find Installed Programs</strong>: Sommelier looks for Start menu and Desktop shortcuts and for programs in <code>Program Files</code>, and lets you choose which ones to add. You can also add a file by hand with <strong>Add…</strong>.</p>
+    <p>Click a program to launch it. Right-click it to <strong>Rename…</strong>, <strong>Show in Finder</strong> or <strong>Remove from List</strong> (the program stays installed in the bottle).</p>
+
+    <h3>Tools</h3>
+    <div class="table"><table>
+      <thead><tr><th>Tool</th><th>What it's for</th></tr></thead>
+      <tbody>
+        <tr><td>Wine Configuration</td><td>Windows version, graphics, audio, libraries (<code>winecfg</code>)</td></tr>
+        <tr><td>Recipes</td><td>Apply a recipe to an existing bottle</td></tr>
+        <tr><td>Winetricks</td><td>Install components: fonts, Visual C++, .NET, DirectX…</td></tr>
+        <tr><td>File Explorer</td><td>Browse the bottle's drives the Windows way</td></tr>
+        <tr><td>Command Prompt</td><td><code>cmd.exe</code> in a window</td></tr>
+        <tr><td>Registry Editor</td><td><code>regedit</code></td></tr>
+        <tr><td>Control Panel</td><td>Windows settings</td></tr>
+        <tr><td>Add/Remove Programs</td><td>Uninstall Windows software</td></tr>
+        <tr><td>Task Manager</td><td>See and end Windows processes</td></tr>
+        <tr><td>macOS Terminal</td><td>A Terminal ready with <code>wine</code>, <code>winetricks</code> and <code>sommelier</code> for this bottle</td></tr>
+        <tr><td>Delete Bottle</td><td>Moves the bottle and everything in it to the Trash</td></tr>
+      </tbody>
+    </table></div>
+    <p>In the toolbar: <strong>Open C:</strong> opens the bottle's drive in Finder; <strong>Quit All</strong> closes every Windows program running in the bottle.</p>
+
+    <h3>Winetricks</h3>
+    <p><strong>Winetricks</strong> installs Windows components that many programs need. Select the common packages (Microsoft fonts, Visual C++ 2015–2022, .NET 4.8, DirectX 9…) or type others, separated by spaces, then click <strong>Install</strong>. Some packages take several minutes.</p>
+    <div class="note"><p>Many of these packages are Microsoft software downloaded from Microsoft's servers: by installing them you accept their license terms.</p></div>
+
+    <h3>Recipes and the online catalog</h3>
+    <figure><img src="images/en/recipes.png" alt="The Recipes section with the online catalog" width="900" height="612" loading="lazy"><figcaption>Recipes: the online catalog and the recipes on your Mac.</figcaption></figure>
+    <ul>
+      <li><strong>Online Catalog</strong>: recipes published at <a href="https://github.com/homecla/sommelier-recipes">homecla/sommelier-recipes</a>. Click <strong>Install</strong> to download one (its SHA-256 fingerprint is checked), <strong>Update</strong> when a newer version is available, or <strong>Get Online Version</strong> to replace a built-in recipe with the catalog one.</li>
+      <li><strong>On Your Mac</strong>: built-in, downloaded and personal recipes. The <strong>Manage Recipes</strong> menu adds recipes from a file or web address, updates downloaded ones, creates a personal recipe from a template, and opens the personal recipes folder.</li>
+    </ul>
+    <div class="note"><p><strong>Safety.</strong> Recipes are never executed as scripts: Sommelier reads only known settings. A recipe can still download and run an installer inside the bottle, so only add recipes from sources you trust.</p></div>
+
+    <h3>Activity</h3>
+    <figure><img src="images/en/activity.png" alt="The Activity section listing operations with their logs" width="900" height="612" loading="lazy"><figcaption>Activity: every operation with its log.</figcaption></figure>
+    <p>Every installation, recipe and program you launch appears here with its log. Use <strong>Copy</strong> to copy a log (useful when asking for help), <strong>Stop</strong> to end a running task and <strong>Clear Completed</strong> to tidy up the list.</p>
+
+    <h3>Settings</h3>
+    <p><strong>Sommelier → Settings</strong> (<kbd>⌘,</kbd>):</p>
+    <ul>
+      <li><strong>Language</strong>: Automatic, English or Italian.</li>
+      <li><strong>Check for Wine updates at launch</strong>.</li>
+      <li><strong>Detailed Wine logs</strong>: turn this on when a program won't start, then look at its log in <strong>Activity</strong>.</li>
+    </ul>
+
+    <h2 id="en-steam"><span class="n">05</span>Example: installing Steam</h2>
+    <ol class="steps">
+      <li><span>Click <strong>New Bottle</strong>, choose the <strong>Steam</strong> setup, name it “Steam”.</span></li>
+      <li><span>Click <strong>Create and Install</strong> and wait: Sommelier sets Windows 10, installs the Microsoft fonts, downloads Valve's official installer and installs Steam.</span></li>
+      <li><span>When it finishes, <strong>Steam</strong> appears in the bottle's program list with the right launch options. Click it and sign in.</span></li>
+    </ol>
+    <div class="note"><p>DirectX 9 games and many indie games run well. With plain Wine on macOS, DirectX 11/12 games often don't: they need translation layers such as D3DMetal or DXVK (included in CrossOver or Apple's Game Porting Toolkit). If Steam's window stays black, close it and launch Steam again from the bottle.</p></div>
+
+    <h2 id="en-cli"><span class="n">06</span>Using the command line</h2>
+    <p>Everything the app does is also available in Terminal with <code>sommelier</code> (<code>sommelier help</code> shows the full list).</p>
+    <div class="code"><pre><code><span class="c"># Wine versions</span>
+sommelier status -r                  <span class="c"># installed versions and updates</span>
+sommelier install devel              <span class="c"># install a branch</span>
+sommelier update                     <span class="c"># update installed versions</span>
+sommelier default staging            <span class="c"># change the default branch</span>
+sommelier uninstall staging          <span class="c"># remove a version</span>
+
+<span class="c"># Bottles</span>
+sommelier bottle create Games -P giochi-classici   <span class="c"># new bottle with a recipe</span>
+sommelier bottle list
+sommelier bottle apply Games applicazioni          <span class="c"># apply a recipe to a bottle</span>
+sommelier bottle delete Games
+
+<span class="c"># Programs</span>
+sommelier run -B Games setup.exe     <span class="c"># run a file in a bottle</span>
+sommelier run -B Games winecfg       <span class="c"># run a Wine tool</span>
+sommelier start -B Steam Steam       <span class="c"># launch a saved program with its options</span>
+sommelier winetricks -B Games corefonts vcrun2022
+sommelier kill -B Games              <span class="c"># close every program in the bottle</span>
+
+<span class="c"># Recipes and catalog</span>
+sommelier preset list
+sommelier catalog                    <span class="c"># online catalog</span>
+sommelier catalog install steam
+sommelier catalog update
+
+<span class="c"># System</span>
+sommelier doctor                     <span class="c"># check Rosetta, permissions, dependencies</span></code></pre></div>
+    <p>The language follows your Mac; to force it use <code>SOMMELIER_LANG=en</code> or <code>SOMMELIER_LANG=it</code>.</p>
+
+    <h2 id="en-update"><span class="n">07</span>Keeping everything up to date</h2>
+    <div class="table"><table>
+      <thead><tr><th>What</th><th>How</th></tr></thead>
+      <tbody>
+        <tr><td>Wine</td><td><strong>Versions → Update All</strong> in the app, or <code>sommelier update</code></td></tr>
+        <tr><td>Catalog recipes</td><td><strong>Recipes → Update</strong>, or <code>sommelier catalog update</code></td></tr>
+        <tr><td>Sommelier itself</td><td>in the project folder: <code>git pull &amp;&amp; ./install.sh</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="en-trouble"><span class="n">08</span>Troubleshooting</h2>
+    <p><strong>“Rosetta 2 is not installed”</strong>: click <strong>Install Rosetta</strong> in Versions, or run <code>sommelier rosetta</code>.</p>
+    <p><strong>A program doesn't start</strong>: turn on <strong>Detailed Wine logs</strong> in Settings, launch it again and read its log in <strong>Activity</strong>. Often a missing component is the cause: try <strong>Winetricks</strong> (for example <code>vcrun2022</code>, <code>corefonts</code>, <code>dotnet48</code>) or a recipe.</p>
+    <p><strong>A game shows a black screen or crashes</strong>: DirectX 11/12 games are usually not supported by plain Wine on macOS (see the note in the Steam example). Older games may work better with Windows 7 or XP set in <strong>Wine Configuration</strong>.</p>
+    <p><strong>“Wine … is in use” while updating</strong>: close the Windows programs (or click <strong>Quit All</strong> in the bottle, or run <code>sommelier kill</code>) and try again.</p>
+    <p><strong>Winetricks fails</strong>: many packages need <code>cabextract</code>; install it with <code>brew install cabextract</code>.</p>
+    <p><strong>Updates can't be checked</strong>: Sommelier needs to reach GitHub. Check your connection and click <strong>Try Again</strong>. Installed versions keep working offline.</p>
+    <p><strong>Something else</strong>: run <code>sommelier doctor</code>. It checks Rosetta, permissions, dependencies and the connection.</p>
+
+    <h2 id="en-uninstall"><span class="n">09</span>Uninstalling</h2>
+    <ol class="steps">
+      <li><span>Remove Wine versions from <strong>Versions</strong> (or <code>sommelier uninstall &lt;branch&gt;</code>).</span></li>
+      <li><span>Drag <strong>Sommelier</strong> from Applications to the Trash.</span></li>
+      <li><span>Remove the command and recipes: <code>rm ~/.local/bin/sommelier &amp;&amp; rm -r ~/.local/share/sommelier</code></span></li>
+      <li><span>To also delete <strong>all bottles and their programs</strong>, move <code>~/Library/Application Support/Sommelier</code> to the Trash. This cannot be undone once the Trash is emptied.</span></li>
+    </ol>
+
+    <h2 id="en-files"><span class="n">10</span>Where files are stored</h2>
+    <div class="table"><table>
+      <thead><tr><th>What</th><th>Where</th></tr></thead>
+      <tbody>
+        <tr><td>Wine</td><td><code>/Applications/Wine Stable.app</code>, <code>Wine Devel.app</code>, <code>Wine Staging.app</code></td></tr>
+        <tr><td>The app</td><td><code>/Applications/Sommelier.app</code></td></tr>
+        <tr><td>The command</td><td><code>~/.local/bin/sommelier</code></td></tr>
+        <tr><td>Bottles, data</td><td><code>~/Library/Application Support/Sommelier/</code> (bottles, personal recipes, winetricks, cache)</td></tr>
+        <tr><td>Built-in recipes</td><td><code>~/.local/share/sommelier/presets/</code></td></tr>
+        <tr><td>App settings</td><td><code>~/Library/Preferences/io.github.homecla.sommelier.plist</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <footer class="legal">Sommelier is free software under the AGPL-3.0-or-later license; recipes are CC0. It is an independent project, not affiliated with WineHQ, CodeWeavers, Microsoft, Valve or Apple; all trademarks belong to their owners.</footer>
+  </article>
+</div>
+
+<!-- ============================== ITALIANO ============================== -->
+<div class="page" lang="it" id="page-it" hidden>
+  <nav class="toc" aria-label="Indice">
+    <h2>Indice</h2>
+    <ol>
+      <li><a href="#it-ideas">Concetti principali</a></li>
+      <li><a href="#it-req">Requisiti</a></li>
+      <li><a href="#it-install">Installazione</a></li>
+      <li><a href="#it-app">Usare l'app</a></li>
+      <li><a href="#it-steam">Esempio: Steam</a></li>
+      <li><a href="#it-cli">Riga di comando</a></li>
+      <li><a href="#it-update">Aggiornamenti</a></li>
+      <li><a href="#it-trouble">Risoluzione dei problemi</a></li>
+      <li><a href="#it-uninstall">Disinstallazione</a></li>
+      <li><a href="#it-files">Dove si trovano i file</a></li>
+    </ol>
+  </nav>
+  <article>
+    <div class="lede">
+      <p class="eyebrow">Un gestore di Wine per macOS</p>
+      <h1>Programmi Windows sul tuo Mac</h1>
+      <p>Sommelier installa, aggiorna ed esegue le build ufficiali WineHQ per macOS. Questa guida spiega come installarlo e come usarlo, dall'app e dal Terminale.</p>
+    </div>
+
+    <h2 id="it-ideas"><span class="n">01</span>Concetti principali</h2>
+    <div class="table"><table>
+      <thead><tr><th>Termine</th><th>Significato</th></tr></thead>
+      <tbody>
+        <tr><td>Wine</td><td>Software che fa girare programmi Windows su macOS traducendo le chiamate di Windows in quelle del Mac. Non è un emulatore né una macchina virtuale.</td></tr>
+        <tr><td>Ramo</td><td>La versione di Wine che installi: <strong>Stable</strong> (la più collaudata, consigliata), <strong>Devel</strong> (più recente, ogni due settimane) o <strong>Staging</strong> (Devel con patch sperimentali). Puoi installarne più di una e scegliere quella predefinita.</td></tr>
+        <tr><td>Bottiglia</td><td>Un «PC Windows» separato, con il suo disco <code>C:</code>, le sue impostazioni e i suoi programmi. Usa una bottiglia diversa per ogni programma o gioco che richiede impostazioni particolari, così non si disturbano a vicenda.</td></tr>
+        <tr><td>Ricetta</td><td>Una configurazione pronta per una bottiglia: versione di Windows, componenti (font, Visual C++, .NET, DirectX…) e, se serve, l'installazione automatica di un programma come Steam.</td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="it-req"><span class="n">02</span>Requisiti</h2>
+    <ul>
+      <li>Un Mac con <strong>macOS 14 Sonoma o successivo</strong>.</li>
+      <li>Sui Mac con <strong>Apple Silicon</strong> (M1, M2, M3…): <strong>Rosetta 2</strong>, perché le build di Wine per macOS sono fatte per Intel. Se manca, l'installer propone di installarla.</li>
+      <li>Una connessione a internet per scaricare Wine, ricette e programmi.</li>
+      <li>Per compilare l'app: i <strong>Command Line Tools</strong> di Apple (<code>xcode-select --install</code>) oppure Xcode.</li>
+    </ul>
+
+    <h2 id="it-install"><span class="n">03</span>Installazione</h2>
+    <h3>Installare con un solo comando</h3>
+    <p>Apri il <strong>Terminale</strong> ed esegui:</p>
+    <div class="code"><pre><code>git clone https://github.com/homecla/sommelier.git
+cd sommelier
+./install.sh</code></pre></div>
+    <p>L'installer:</p>
+    <ol class="steps">
+      <li><span>installa il comando <code>sommelier</code> in <code>~/.local/bin</code>;</span></li>
+      <li><span>installa Rosetta 2, se serve e manca;</span></li>
+      <li><span>compila l'app <strong>Sommelier</strong> e la copia in <code>/Applicazioni</code>;</span></li>
+      <li><span>installa <strong>Wine Stable</strong>, oppure aggiorna le versioni di Wine che hai già.</span></li>
+    </ol>
+    <p>Opzioni utili:</p>
+    <div class="code"><pre><code>./install.sh --branch devel   <span class="c"># usa Devel come ramo predefinito</span>
+./install.sh --no-wine        <span class="c"># installa solo il comando e l'app</span></code></pre></div>
+    <div class="note"><p>Se l'installer dice che <code>~/.local/bin</code> non è nel PATH, esegui la riga che suggerisce (aggiunge la cartella a <code>~/.zprofile</code>), poi apri una nuova finestra del Terminale.</p></div>
+    <h3>Primo avvio</h3>
+    <p>Apri <strong>Sommelier</strong> dal Launchpad o dalla cartella Applicazioni. Al primo avvio l'app controlla quali versioni di Wine sono installate e se ci sono aggiornamenti.</p>
+    <p>L'app parla <strong>italiano</strong> e <strong>inglese</strong>. In automatico segue la lingua del Mac; per cambiarla apri <strong>Sommelier → Impostazioni</strong> (<kbd>⌘,</kbd>) e scegli <strong>Lingua</strong>.</p>
+
+    <h2 id="it-app"><span class="n">04</span>Usare l'app</h2>
+    <p>La barra laterale ha quattro aree: <strong>Versioni</strong>, <strong>Ricette</strong>, le tue <strong>Bottiglie</strong> e <strong>Attività</strong>.</p>
+
+    <h3>Versioni di Wine</h3>
+    <figure><img src="images/it/versions.png" alt="La sezione Versioni con Wine Stable installato e Devel e Staging disponibili" width="900" height="612" loading="lazy"><figcaption>Versioni: versione installata e ultima disponibile per ogni ramo.</figcaption></figure>
+    <ul>
+      <li><strong>Installa</strong> scarica la versione, la verifica (SHA-256) e la installa in <code>/Applicazioni</code>.</li>
+      <li><strong>Aggiorna a …</strong> compare quando esce una versione più recente. <strong>Aggiorna tutto</strong> aggiorna tutti i rami insieme.</li>
+      <li><strong>Opzioni</strong> → <em>Usa come predefinita</em>, <em>Mostra nel Finder</em>, <em>Reinstalla</em>, <em>Disinstalla…</em></li>
+      <li>Il pulsante nella barra degli strumenti (<kbd>⌘R</kbd>) ricontrolla gli aggiornamenti.</li>
+    </ul>
+    <p>Gli aggiornamenti non toccano mai le bottiglie né i programmi installati.</p>
+
+    <h3>Creare una bottiglia</h3>
+    <p>Fai clic su <strong>Nuova bottiglia</strong> in fondo alla barra laterale (<kbd>⌘N</kbd>).</p>
+    <figure><img src="images/it/newbottle.png" alt="Il foglio Nuova bottiglia con le configurazioni Vuota, Steam, Giochi classici, Applicazioni e Applicazioni .NET" width="560" height="528" loading="lazy" style="max-width:560px"><figcaption>Nuova bottiglia: scegli configurazione, nome e versione di Wine.</figcaption></figure>
+    <ol class="steps">
+      <li><span>Scegli una <strong>configurazione</strong>: <em>Vuota</em> (solo Wine) o una delle ricette (Steam, Giochi classici, Applicazioni, Applicazioni .NET…). Le ricette con l'etichetta <strong>Installa</strong> scaricano e installano anche un programma.</span></li>
+      <li><span>Scrivi un <strong>Nome</strong> (per esempio «Giochi» o «Ufficio»).</span></li>
+      <li><span>Scegli la <strong>Versione di Wine</strong>: <em>Predefinita</em> segue il ramo predefinito, oppure scegline una precisa.</span></li>
+      <li><span>Fai clic su <strong>Crea</strong> (o <strong>Crea e installa</strong>). L'avanzamento compare nella bottiglia e in <strong>Attività</strong>. La prima volta, preparare una bottiglia richiede circa un minuto.</span></li>
+    </ol>
+
+    <h3>Eseguire programmi Windows</h3>
+    <figure><img src="images/it/bottle.png" alt="Una bottiglia con l'area di trascinamento, l'elenco dei programmi e gli strumenti" width="900" height="612" loading="lazy"><figcaption>Una bottiglia: area di trascinamento, programmi e strumenti.</figcaption></figure>
+    <p>Apri una bottiglia dalla barra laterale. Per eseguire un programma puoi:</p>
+    <ul>
+      <li><strong>trascinare</strong> un file <code>.exe</code>, <code>.msi</code>, <code>.bat</code> o <code>.lnk</code> nell'area tratteggiata;</li>
+      <li><strong>fare clic</strong> sull'area tratteggiata e scegliere il file;</li>
+      <li>nel Finder, fare clic destro su un file <code>.exe</code> → <strong>Apri con → Sommelier</strong>, poi scegliere la bottiglia;</li>
+      <li>usare <strong>File → Esegui un programma Windows…</strong> (<kbd>⌘O</kbd>).</li>
+    </ul>
+    <p>Gli installer (<code>setup.exe</code>, <code>.msi</code>) si eseguono come qualsiasi programma: segui le loro finestre come faresti su Windows.</p>
+
+    <h3>L'elenco dei programmi</h3>
+    <p>Dopo aver installato qualcosa, fai clic su <strong>Cerca programmi installati</strong>: Sommelier cerca i collegamenti del menu Start e del Desktop e i programmi in <code>Program Files</code>, e ti fa scegliere quali aggiungere. Puoi anche aggiungere un file a mano con <strong>Aggiungi…</strong>.</p>
+    <p>Fai clic su un programma per avviarlo. Con il clic destro puoi <strong>Rinomina…</strong>, <strong>Mostra nel Finder</strong> o <strong>Rimuovi dall'elenco</strong> (il programma resta installato nella bottiglia).</p>
+
+    <h3>Strumenti</h3>
+    <div class="table"><table>
+      <thead><tr><th>Strumento</th><th>A cosa serve</th></tr></thead>
+      <tbody>
+        <tr><td>Configurazione Wine</td><td>Versione di Windows, grafica, audio, librerie (<code>winecfg</code>)</td></tr>
+        <tr><td>Configurazioni predefinite</td><td>Applicare una ricetta a una bottiglia esistente</td></tr>
+        <tr><td>Winetricks</td><td>Installare componenti: font, Visual C++, .NET, DirectX…</td></tr>
+        <tr><td>Esplora risorse</td><td>Sfogliare i dischi della bottiglia come su Windows</td></tr>
+        <tr><td>Prompt dei comandi</td><td><code>cmd.exe</code> in una finestra</td></tr>
+        <tr><td>Editor del registro</td><td><code>regedit</code></td></tr>
+        <tr><td>Pannello di controllo</td><td>Impostazioni di Windows</td></tr>
+        <tr><td>Installa/rimuovi programmi</td><td>Disinstallare software Windows</td></tr>
+        <tr><td>Gestione attività</td><td>Vedere e chiudere i processi Windows</td></tr>
+        <tr><td>Terminale macOS</td><td>Un Terminale già pronto con <code>wine</code>, <code>winetricks</code> e <code>sommelier</code> per questa bottiglia</td></tr>
+        <tr><td>Elimina bottiglia</td><td>Sposta nel Cestino la bottiglia e tutto ciò che contiene</td></tr>
+      </tbody>
+    </table></div>
+    <p>Nella barra degli strumenti: <strong>Apri C:</strong> apre il disco della bottiglia nel Finder; <strong>Termina tutto</strong> chiude tutti i programmi Windows aperti nella bottiglia.</p>
+
+    <h3>Winetricks</h3>
+    <p><strong>Winetricks</strong> installa componenti Windows che servono a molti programmi. Seleziona i pacchetti più comuni (font Microsoft, Visual C++ 2015–2022, .NET 4.8, DirectX 9…) o scrivine altri separati da spazi, poi fai clic su <strong>Installa</strong>. Alcuni pacchetti richiedono diversi minuti.</p>
+    <div class="note"><p>Molti di questi pacchetti sono software Microsoft scaricato dai server di Microsoft: installandoli accetti le relative condizioni di licenza.</p></div>
+
+    <h3>Ricette e catalogo online</h3>
+    <figure><img src="images/it/recipes.png" alt="La sezione Ricette con il catalogo online" width="900" height="612" loading="lazy"><figcaption>Ricette: il catalogo online e le ricette sul tuo Mac.</figcaption></figure>
+    <ul>
+      <li><strong>Catalogo online</strong>: le ricette pubblicate su <a href="https://github.com/homecla/sommelier-recipes">homecla/sommelier-recipes</a>. Fai clic su <strong>Installa</strong> per scaricarne una (l'impronta SHA-256 viene verificata), su <strong>Aggiorna</strong> quando ne esce una versione più recente, oppure su <strong>Scarica versione online</strong> per sostituire una ricetta integrata con quella del catalogo.</li>
+      <li><strong>Sul tuo Mac</strong>: le ricette integrate, scaricate e personali. Il menu <strong>Gestisci ricette</strong> aggiunge ricette da file o da indirizzo web, aggiorna quelle scaricate, crea una ricetta personale da un modello e apre la cartella delle ricette personali.</li>
+    </ul>
+    <div class="note"><p><strong>Sicurezza.</strong> Le ricette non vengono mai eseguite come script: Sommelier legge solo le impostazioni previste. Una ricetta può comunque scaricare ed eseguire un installer nella bottiglia, quindi aggiungi solo ricette di fonti di cui ti fidi.</p></div>
+
+    <h3>Attività</h3>
+    <figure><img src="images/it/activity.png" alt="La sezione Attività con l'elenco delle operazioni e i loro registri" width="900" height="612" loading="lazy"><figcaption>Attività: ogni operazione con il suo registro.</figcaption></figure>
+    <p>Ogni installazione, ricetta e programma avviato compare qui con il suo registro. Usa <strong>Copia</strong> per copiare un registro (utile per chiedere aiuto), <strong>Interrompi</strong> per fermare un'operazione in corso e <strong>Pulisci completate</strong> per riordinare l'elenco.</p>
+
+    <h3>Impostazioni</h3>
+    <p><strong>Sommelier → Impostazioni</strong> (<kbd>⌘,</kbd>):</p>
+    <ul>
+      <li><strong>Lingua</strong>: Automatica, English o Italiano.</li>
+      <li><strong>Controlla gli aggiornamenti di Wine all'avvio</strong>.</li>
+      <li><strong>Log dettagliati di Wine</strong>: attivali quando un programma non parte, poi guarda il suo registro in <strong>Attività</strong>.</li>
+    </ul>
+
+    <h2 id="it-steam"><span class="n">05</span>Esempio: installare Steam</h2>
+    <ol class="steps">
+      <li><span>Fai clic su <strong>Nuova bottiglia</strong>, scegli la configurazione <strong>Steam</strong> e chiamala «Steam».</span></li>
+      <li><span>Fai clic su <strong>Crea e installa</strong> e attendi: Sommelier imposta Windows 10, installa i font Microsoft, scarica l'installer ufficiale di Valve e installa Steam.</span></li>
+      <li><span>Alla fine <strong>Steam</strong> compare nell'elenco dei programmi della bottiglia, con le opzioni di avvio giuste. Fai clic e accedi.</span></li>
+    </ol>
+    <div class="note"><p>I giochi DirectX 9 e molti indie girano bene. Con Wine «puro» su macOS i giochi DirectX 11/12 spesso no: servono livelli di traduzione come D3DMetal o DXVK (inclusi in CrossOver o nel Game Porting Toolkit di Apple). Se la finestra di Steam resta nera, chiudila e avvia di nuovo Steam dalla bottiglia.</p></div>
+
+    <h2 id="it-cli"><span class="n">06</span>Usare la riga di comando</h2>
+    <p>Tutto ciò che fa l'app è disponibile anche nel Terminale con <code>sommelier</code> (<code>sommelier help</code> mostra l'elenco completo).</p>
+    <div class="code"><pre><code><span class="c"># Versioni di Wine</span>
+sommelier status -r                  <span class="c"># versioni installate e aggiornamenti</span>
+sommelier install devel              <span class="c"># installa un ramo</span>
+sommelier update                     <span class="c"># aggiorna le versioni installate</span>
+sommelier default staging            <span class="c"># cambia il ramo predefinito</span>
+sommelier uninstall staging          <span class="c"># rimuove una versione</span>
+
+<span class="c"># Bottiglie</span>
+sommelier bottle create Giochi -P giochi-classici  <span class="c"># nuova bottiglia con una ricetta</span>
+sommelier bottle list
+sommelier bottle apply Giochi applicazioni         <span class="c"># applica una ricetta a una bottiglia</span>
+sommelier bottle delete Giochi
+
+<span class="c"># Programmi</span>
+sommelier run -B Giochi setup.exe    <span class="c"># esegue un file in una bottiglia</span>
+sommelier run -B Giochi winecfg      <span class="c"># avvia uno strumento di Wine</span>
+sommelier start -B Steam Steam       <span class="c"># avvia un programma salvato con le sue opzioni</span>
+sommelier winetricks -B Giochi corefonts vcrun2022
+sommelier kill -B Giochi             <span class="c"># chiude tutti i programmi della bottiglia</span>
+
+<span class="c"># Ricette e catalogo</span>
+sommelier preset list
+sommelier catalog                    <span class="c"># catalogo online</span>
+sommelier catalog install steam
+sommelier catalog update
+
+<span class="c"># Sistema</span>
+sommelier doctor                     <span class="c"># controlla Rosetta, permessi, dipendenze</span></code></pre></div>
+    <p>La lingua segue quella del Mac; per forzarla usa <code>SOMMELIER_LANG=it</code> o <code>SOMMELIER_LANG=en</code>.</p>
+
+    <h2 id="it-update"><span class="n">07</span>Tenere tutto aggiornato</h2>
+    <div class="table"><table>
+      <thead><tr><th>Cosa</th><th>Come</th></tr></thead>
+      <tbody>
+        <tr><td>Wine</td><td><strong>Versioni → Aggiorna tutto</strong> nell'app, oppure <code>sommelier update</code></td></tr>
+        <tr><td>Ricette del catalogo</td><td><strong>Ricette → Aggiorna</strong>, oppure <code>sommelier catalog update</code></td></tr>
+        <tr><td>Sommelier stesso</td><td>nella cartella del progetto: <code>git pull &amp;&amp; ./install.sh</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <h2 id="it-trouble"><span class="n">08</span>Risoluzione dei problemi</h2>
+    <p><strong>«Rosetta 2 non è installato»</strong>: fai clic su <strong>Installa Rosetta</strong> in Versioni, oppure esegui <code>sommelier rosetta</code>.</p>
+    <p><strong>Un programma non parte</strong>: attiva <strong>Log dettagliati di Wine</strong> nelle Impostazioni, avvialo di nuovo e leggi il suo registro in <strong>Attività</strong>. Spesso la causa è un componente mancante: prova <strong>Winetricks</strong> (per esempio <code>vcrun2022</code>, <code>corefonts</code>, <code>dotnet48</code>) o una ricetta.</p>
+    <p><strong>Un gioco mostra lo schermo nero o si chiude</strong>: i giochi DirectX 11/12 di solito non sono supportati da Wine «puro» su macOS (vedi la nota nell'esempio di Steam). I giochi più vecchi a volte funzionano meglio impostando Windows 7 o XP in <strong>Configurazione Wine</strong>.</p>
+    <p><strong>«Wine … è in uso» durante un aggiornamento</strong>: chiudi i programmi Windows (o fai clic su <strong>Termina tutto</strong> nella bottiglia, o esegui <code>sommelier kill</code>) e riprova.</p>
+    <p><strong>Winetricks non riesce a installare</strong>: molti pacchetti richiedono <code>cabextract</code>, che si installa con <code>brew install cabextract</code>.</p>
+    <p><strong>Impossibile controllare gli aggiornamenti</strong>: Sommelier deve raggiungere GitHub. Controlla la connessione e fai clic su <strong>Riprova</strong>. Le versioni installate funzionano anche offline.</p>
+    <p><strong>Altro</strong>: esegui <code>sommelier doctor</code>, che controlla Rosetta, permessi, dipendenze e connessione.</p>
+
+    <h2 id="it-uninstall"><span class="n">09</span>Disinstallazione</h2>
+    <ol class="steps">
+      <li><span>Rimuovi le versioni di Wine da <strong>Versioni</strong> (oppure <code>sommelier uninstall &lt;ramo&gt;</code>).</span></li>
+      <li><span>Trascina <strong>Sommelier</strong> dalla cartella Applicazioni al Cestino.</span></li>
+      <li><span>Rimuovi il comando e le ricette: <code>rm ~/.local/bin/sommelier &amp;&amp; rm -r ~/.local/share/sommelier</code></span></li>
+      <li><span>Per cancellare anche <strong>tutte le bottiglie e i loro programmi</strong>, sposta nel Cestino <code>~/Library/Application Support/Sommelier</code>. Una volta svuotato il Cestino non si torna indietro.</span></li>
+    </ol>
+
+    <h2 id="it-files"><span class="n">10</span>Dove si trovano i file</h2>
+    <div class="table"><table>
+      <thead><tr><th>Cosa</th><th>Dove</th></tr></thead>
+      <tbody>
+        <tr><td>Wine</td><td><code>/Applications/Wine Stable.app</code>, <code>Wine Devel.app</code>, <code>Wine Staging.app</code></td></tr>
+        <tr><td>L'app</td><td><code>/Applications/Sommelier.app</code></td></tr>
+        <tr><td>Il comando</td><td><code>~/.local/bin/sommelier</code></td></tr>
+        <tr><td>Bottiglie, dati</td><td><code>~/Library/Application Support/Sommelier/</code> (bottiglie, ricette personali, winetricks, cache)</td></tr>
+        <tr><td>Ricette integrate</td><td><code>~/.local/share/sommelier/presets/</code></td></tr>
+        <tr><td>Impostazioni dell'app</td><td><code>~/Library/Preferences/io.github.homecla.sommelier.plist</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <footer class="legal">Sommelier è software libero con licenza AGPL-3.0-or-later; le ricette sono in CC0. È un progetto indipendente, non affiliato a WineHQ, CodeWeavers, Microsoft, Valve o Apple; tutti i marchi appartengono ai rispettivi titolari.</footer>
+  </article>
+</div>
+
+<script>
+(function () {
+  var pages = { en: document.getElementById('page-en'), it: document.getElementById('page-it') };
+  var buttons = document.querySelectorAll('.lang button');
+  var label = document.querySelector('.brand small');
+
+  function setLang(lang, remember) {
+    if (!pages[lang]) lang = 'en';
+    pages.en.hidden = lang !== 'en';
+    pages.it.hidden = lang !== 'it';
+    document.documentElement.lang = lang;
+    buttons.forEach(function (b) { b.setAttribute('aria-pressed', String(b.dataset.lang === lang)); });
+    label.textContent = label.dataset[lang];
+    if (remember) { try { localStorage.setItem('sommelier-guide-lang', lang); } catch (e) {} }
+  }
+
+  var saved = null;
+  try { saved = localStorage.getItem('sommelier-guide-lang'); } catch (e) {}
+  var hash = (location.hash || '').slice(1, 3);
+  var browser = (navigator.language || 'en').slice(0, 2).toLowerCase();
+  setLang(hash === 'it' || hash === 'en' ? hash : (saved || (browser === 'it' ? 'it' : 'en')), false);
+
+  buttons.forEach(function (b) {
+    b.addEventListener('click', function () { setLang(b.dataset.lang, true); window.scrollTo(0, 0); });
+  });
+
+  // copy buttons on code blocks
+  document.querySelectorAll('.code').forEach(function (block) {
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy';
+    var it = block.closest('[lang]').lang === 'it';
+    var idle = it ? 'Copia' : 'Copy', done = it ? 'Copiato' : 'Copied';
+    btn.textContent = idle;
+    btn.addEventListener('click', function () {
+      var text = block.querySelector('code').innerText;
+      var ok = function () { btn.textContent = done; setTimeout(function () { btn.textContent = idle; }, 1500); };
+      var fallback = function () {
+        var r = document.createRange(); r.selectNodeContents(block.querySelector('code'));
+        var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      };
+      try { navigator.clipboard.writeText(text).then(ok, fallback); } catch (e) { fallback(); }
+    });
+    block.appendChild(btn);
+  });
+})();
+</script>
+
+</body>
+</html>

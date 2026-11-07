@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: CC0-1.0
+# Ricetta / Recipe: applicazioni generiche (utility, ufficio) / general applications (utilities, office)
+ORDER=30
+TITLE="Applicazioni"
+ICON="macwindow"
+DESCRIPTION="Per programmi da ufficio e utility: runtime Visual C++ 2015–2022, GDI+ e font Microsoft."
+TITLE_EN="Applications"
+DESCRIPTION_EN="For office programs and utilities: Visual C++ 2015–2022 runtimes, GDI+ and Microsoft fonts."
+WINVER="win10"
+WINETRICKS="corefonts vcrun2022 gdiplus"
+FONT_SMOOTHING=1

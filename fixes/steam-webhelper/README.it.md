@@ -31,4 +31,12 @@ pubblica la DLL come release. `sommelier` la scarica solo per le ricette con
 `test/cmdline.c` è un programma di test: compilato come `steamwebhelper.exe` deve ricevere
 `--in-process-gpu`, mentre `steamwebhelper.exe --type=gpu-process` e `other.exe` no.
 
-Licenza: AGPL-3.0-or-later.
+## Licenze e condizioni
+
+- Il correttivo è codice nostro, con licenza AGPL-3.0-or-later. L'elenco delle funzioni
+  inoltrate in `winmm.def` proviene da Wine (LGPL-2.1-or-later), che è compatibile. Il runtime di
+  mingw-w64 e libgcc inclusi nella DLL ne permettono la distribuzione con qualsiasi licenza.
+- Sommelier distribuisce solo questa DLL, con il suo sorgente in questa cartella. Steam e Wine
+  non vengono ridistribuiti: il correttivo si combina con loro solo sul computer dell'utente.
+- I file di Steam non vengono modificati, ma il correttivo agisce dentro il processo del browser di Steam. Le condizioni d'uso di Steam (Steam Subscriber Agreement) limitano le modifiche al client: correttivi di compatibilità di questo tipo sono comuni negli strumenti che eseguono Steam con Wine, ma la decisione di usarlo spetta a te.
+

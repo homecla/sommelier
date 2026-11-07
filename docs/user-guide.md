@@ -217,6 +217,8 @@ Completed** to tidy up the list.
 > its own process ([how it works](https://github.com/homecla/sommelier/tree/main/fixes/steam-webhelper)). Steam's files are not modified, so Steam keeps
 > updating itself. If the window is black, the bottle was set up with an older version of
 > Sommelier: update Sommelier, then open the bottle → **Recipes** → **Steam** → **Apply**.
+>
+> Steam's files are not modified, but the fix does run inside Steam's browser process. Steam's Subscriber Agreement restricts modifying the Steam client: compatibility fixes of this kind are common in tools that run Steam under Wine, but whether to use it is your decision.
 
 > DirectX 9 games and many indie games run well. With plain Wine on macOS, DirectX 11/12
 > games often don't: they need translation layers such as D3DMetal or DXVK (included in

@@ -219,6 +219,8 @@ in corso e **Pulisci completate** per riordinare l'elenco.
 > Steam non vengono modificati, quindi Steam continua ad aggiornarsi da solo. Se la finestra è
 > nera, la bottiglia è stata preparata con una versione precedente di Sommelier: aggiorna
 > Sommelier, poi apri la bottiglia → **Configurazioni predefinite** → **Steam** → **Applica**.
+>
+> I file di Steam non vengono modificati, ma il correttivo agisce dentro il processo del browser di Steam. Le condizioni d'uso di Steam (Steam Subscriber Agreement) limitano le modifiche al client: correttivi di compatibilità di questo tipo sono comuni negli strumenti che eseguono Steam con Wine, ma la decisione di usarlo spetta a te.
 
 > I giochi DirectX 9 e molti indie girano bene. Con Wine «puro» su macOS i giochi DirectX
 > 11/12 spesso no: servono livelli di traduzione come D3DMetal o DXVK (inclusi in CrossOver

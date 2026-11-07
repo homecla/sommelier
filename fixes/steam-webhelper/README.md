@@ -30,4 +30,12 @@ publishes the DLL as a release. `sommelier` downloads it only for recipes with
 `test/cmdline.c` is a test program: built as `steamwebhelper.exe` it must see
 `--in-process-gpu`, while `steamwebhelper.exe --type=gpu-process` and `other.exe` must not.
 
-License: AGPL-3.0-or-later.
+## Licenses and terms
+
+- The fix is our own code, under the AGPL-3.0-or-later. The list of forwarded functions in
+  `winmm.def` comes from Wine (LGPL-2.1-or-later), which is compatible. The mingw-w64 runtime
+  and libgcc linked into the DLL allow distribution under any license.
+- Sommelier distributes only this DLL, with its source in this folder. Steam and Wine are not
+  redistributed: the fix is combined with them only on the user's own computer.
+- Steam's files are not modified, but the fix does run inside Steam's browser process. Steam's Subscriber Agreement restricts modifying the Steam client: compatibility fixes of this kind are common in tools that run Steam under Wine, but whether to use it is your decision.
+

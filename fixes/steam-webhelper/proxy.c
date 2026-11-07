@@ -11,8 +11,9 @@
 // How it works: Sommelier installs this file as system32\winmm.dll and Wine's own winmm as
 // system32\winmm_orig.dll, and enables it only for steamwebhelper.exe through
 //   HKCU\Software\Wine\AppDefaults\steamwebhelper.exe\DllOverrides  winmm = native,builtin
-// When steamwebhelper.exe starts, its imports load before its code runs; DllMain appends
-// --in-process-gpu to the process command line, which Chromium reads with GetCommandLineW.
+// When steamwebhelper.exe starts, its imports load before its code runs; DllMain builds the
+// command line with --in-process-gpu appended and makes GetCommandLineW (which Chromium uses)
+// return it.
 // Child processes (their command line contains --type=) are left alone. Every winmm
 // function is forwarded to winmm_orig.dll (see winmm.def). Steam's own files are never changed.
 
@@ -20,6 +21,54 @@
 #include <winternl.h>
 
 static const wchar_t FLAG[] = L" --in-process-gpu";
+static wchar_t *new_cmdline;
+
+static LPWSTR WINAPI hooked_GetCommandLineW(void) { return new_cmdline; }
+
+static int is_padding(const unsigned char *p, size_t n)
+{
+    for (size_t i = 0; i < n; i++) if (p[i] != 0xCC && p[i] != 0x90) return 0;
+    return 1;
+}
+
+// Wine's GetCommandLineW returns a pointer cached when the process starts
+// (kernelbase: "static WCHAR *command_lineW; ... return command_lineW;"), so changing the
+// process parameters is not enough: GetCommandLineW must return the new buffer.
+static void redirect_get_command_line(void)
+{
+    HMODULE kb = GetModuleHandleW(L"kernelbase.dll");
+    unsigned char *fn = kb ? (unsigned char *)GetProcAddress(kb, "GetCommandLineW") : NULL;
+    if (!fn) fn = (unsigned char *)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "GetCommandLineW");
+    if (!fn) return;
+
+    // Preferred: the function is "mov rax, [rip+disp32]; ret" (48 8B 05 xx xx xx xx C3):
+    // update the cached pointer it reads. Data only, no code is changed.
+    if (fn[0] == 0x48 && fn[1] == 0x8B && fn[2] == 0x05 && fn[7] == 0xC3) {
+        INT32 disp;
+        memcpy(&disp, fn + 3, sizeof(disp));
+        wchar_t **cached = (wchar_t **)(fn + 7 + disp);
+        DWORD old;
+        if (VirtualProtect(cached, sizeof(*cached), PAGE_READWRITE, &old)) {
+            *cached = new_cmdline;
+            VirtualProtect(cached, sizeof(*cached), old, &old);
+        }
+        return;
+    }
+
+    // Fallback: jump to our function (mov rax, imm64; jmp rax = 12 bytes), only when the
+    // bytes we overwrite end with the function's "ret" followed by alignment padding.
+    unsigned char *ret = memchr(fn, 0xC3, 12);
+    if (!ret || !is_padding(ret + 1, (size_t)(fn + 12 - (ret + 1)))) return;
+    unsigned char jump[12] = { 0x48, 0xB8, 0, 0, 0, 0, 0, 0, 0, 0, 0xFF, 0xE0 };
+    void *target = (void *)hooked_GetCommandLineW;
+    memcpy(jump + 2, &target, sizeof(target));
+    DWORD old;
+    if (VirtualProtect(fn, sizeof(jump), PAGE_EXECUTE_READWRITE, &old)) {
+        memcpy(fn, jump, sizeof(jump));
+        VirtualProtect(fn, sizeof(jump), old, &old);
+        FlushInstructionCache(GetCurrentProcess(), fn, sizeof(jump));
+    }
+}
 
 static int contains(const wchar_t *haystack, const wchar_t *needle)
 {
@@ -55,10 +104,11 @@ static void append_flag(void)
     memcpy(buf + old_chars, FLAG, flag_chars * sizeof(wchar_t));
     buf[total] = 0;
 
-    // Wine's GetCommandLineW returns ProcessParameters->CommandLine.Buffer
     cl->Buffer = buf;
     cl->Length = (USHORT)(total * sizeof(wchar_t));
     cl->MaximumLength = (USHORT)((total + 1) * sizeof(wchar_t));
+    new_cmdline = buf;
+    redirect_get_command_line();
 }
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved)

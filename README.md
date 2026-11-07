@@ -12,8 +12,8 @@ and Italian.
 > Wine builds come from [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds),
 > the source linked from the [WineHQ wiki](https://wiki.winehq.org/MacOS).
 
-📖 **[User Guide](docs/user-guide.md)**: installation, everyday use, Steam example, troubleshooting.
-Also available as a bilingual web page: [`docs/index.html`](docs/index.html).
+📖 **User Guide: [homecla.github.io/sommelier](https://homecla.github.io/sommelier/)** (English/Italian).
+Installation, everyday use, Steam example, troubleshooting. Also in Markdown: [docs/user-guide.md](docs/user-guide.md).
 
 ## Install / update (one command)
 

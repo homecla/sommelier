@@ -11,8 +11,8 @@ classici, applicazioni .NET e altro. App e comando parlano italiano e inglese.
 > Le build di Wine provengono da [Gcenx/macOS_Wine_builds](https://github.com/Gcenx/macOS_Wine_builds),
 > la fonte indicata dal [wiki di WineHQ](https://wiki.winehq.org/MacOS).
 
-📖 **[Guida utente](docs/guida-utente.md)**: installazione, uso quotidiano, esempio con Steam, risoluzione dei problemi.
-Disponibile anche come pagina web bilingue: [`docs/index.html`](docs/index.html).
+📖 **Guida utente: [homecla.github.io/sommelier](https://homecla.github.io/sommelier/#it)** (italiano/inglese).
+Installazione, uso quotidiano, esempio con Steam, risoluzione dei problemi. Anche in Markdown: [docs/guida-utente.md](docs/guida-utente.md).
 
 ## Installazione / aggiornamento (un solo comando)
 

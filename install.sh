@@ -30,7 +30,7 @@ say() { printf '\033[1;32m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
 for old in "$HOME/.local/bin/winehq" "$HOME/.local/share/winehq" "/Applications/WineHQ Manager.app" "$HOME/Applications/WineHQ Manager.app"; do
   if [ -e "$old" ]; then
     pkill -x "WineHQ Manager" 2>/dev/null || true
-    mv "$old" "$HOME/.Trash/$(printf '%s' "${old#$HOME/}" | tr '/' '_')-$(date +%s)" && echo "    $(t 'vecchia versione spostata nel Cestino' 'old version moved to the Trash'): $old"
+    mv "$old" "$HOME/.Trash/$(printf '%s' "${old#"$HOME"/}" | tr '/' '_')-$(date +%s)" && echo "    $(t 'vecchia versione spostata nel Cestino' 'old version moved to the Trash'): $old"
   fi
 done
 

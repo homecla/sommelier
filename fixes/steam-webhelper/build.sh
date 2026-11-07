@@ -11,6 +11,7 @@ CC="${CC:-x86_64-w64-mingw32-gcc}"
 mkdir -p "$OUT"
 
 # Reproducible, small output: no timestamps, no debug info, static libgcc
+# shellcheck disable=SC2054  # the comma belongs to the linker option -Wl,--no-insert-timestamp
 CFLAGS=(-O2 -s -Wall -Wextra -static-libgcc -Wl,--no-insert-timestamp)
 
 "$CC" "${CFLAGS[@]}" -shared -o "$OUT/winmm.dll" proxy.c winmm.def -lkernel32 -luser32

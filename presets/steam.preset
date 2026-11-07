@@ -23,11 +23,15 @@ INSTALLER_ARGS="/S"
 
 PROGRAM_NAME="Steam"
 PROGRAM_PATH='C:\Program Files (x86)\Steam\steam.exe|C:\Program Files\Steam\steam.exe'
-# Il browser integrato di Steam (CEF) con Wine si blocca o resta nero se usa sandbox e GPU;
-# -cef-in-process-gpu: il driver Mac di Wine non mostra ciò che disegna un processo GPU separato
-# Steam's built-in browser (CEF) freezes or stays black under Wine when it uses the sandbox and the GPU;
-# -cef-in-process-gpu: Wine's Mac driver can't show what a separate GPU process draws
-PROGRAM_ARGS="-no-cef-sandbox -cef-in-process-gpu -cef-disable-gpu -cef-disable-gpu-compositing"
+# Il browser integrato di Steam (CEF) con Wine si blocca se usa sandbox e GPU
+# Steam's built-in browser (CEF) freezes under Wine when it uses the sandbox and the GPU
+PROGRAM_ARGS="-no-cef-sandbox -cef-disable-gpu -cef-disable-gpu-compositing"
+
+# Finestra nera: il driver Mac di Wine non mostra ciò che disegna il processo GPU separato di
+# Chromium. Il correttivo di Sommelier fa disegnare il browser di Steam nel proprio processo.
+# Black window: Wine's Mac driver can't show what Chromium's separate GPU process draws.
+# Sommelier's fix makes Steam's browser draw in its own process (fixes/steam-webhelper).
+FIXES="steam-webhelper"
 
 REGISTRY='[HKEY_CURRENT_USER\Software\Wine\DllOverrides]
 "gameoverlayrenderer"=""

@@ -475,6 +475,7 @@ cmd_run() {
   parse_ctx "$@"; set -- ${REST[@]+"${REST[@]}"}
   [ $# -gt 0 ] || die "cosa devo avviare? es: sommelier run -B Giochi setup.exe   oppure   sommelier run winecfg" "what should I run? e.g. sommelier run -B Games setup.exe   or   sommelier run winecfg"
   setup_env
+  fix_sync_steam_webhelper
   local t="$1"; shift
   if [ -f "$t" ]; then
     local lower; lower=$(printf '%s' "$t" | tr '[:upper:]' '[:lower:]')
@@ -522,7 +523,7 @@ cmd_winetricks() {
 #
 # A recipe is a NAME.preset file of KEY="value" lines (see presets/steam.preset).
 # The file is NEVER executed: it is read line by line and only these keys are accepted:
-PRESET_KEYS="TITLE DESCRIPTION NOTES TITLE_EN DESCRIPTION_EN NOTES_EN TITLE_IT DESCRIPTION_IT NOTES_IT ICON ORDER WINVER WINETRICKS FONT_SMOOTHING REGISTRY INSTALLER_URL INSTALLER_ARGS PROGRAM_NAME PROGRAM_PATH PROGRAM_ARGS SOURCE"
+PRESET_KEYS="FIXES TITLE DESCRIPTION NOTES TITLE_EN DESCRIPTION_EN NOTES_EN TITLE_IT DESCRIPTION_IT NOTES_IT ICON ORDER WINVER WINETRICKS FONT_SMOOTHING REGISTRY INSTALLER_URL INSTALLER_ARGS PROGRAM_NAME PROGRAM_PATH PROGRAM_ARGS SOURCE"
 USER_PRESETS="$SUPPORT/Presets"
 # Online recipe catalog (can be changed with: sommelier catalog url URL)
 DEFAULT_CATALOG="https://raw.githubusercontent.com/homecla/sommelier-recipes/main/catalog.json"
@@ -573,7 +574,7 @@ parse_preset() {
 load_preset_file() {
   TITLE=""; DESCRIPTION=""; ICON=""; NOTES=""; WINVER=""; WINETRICKS=""; FONT_SMOOTHING=0; REGISTRY=""
   INSTALLER_URL=""; INSTALLER_ARGS=""; PROGRAM_NAME=""; PROGRAM_PATH=""; PROGRAM_ARGS=""; ORDER=50; SOURCE=""
-  TITLE_EN=""; DESCRIPTION_EN=""; NOTES_EN=""; TITLE_IT=""; DESCRIPTION_IT=""; NOTES_IT=""
+  TITLE_EN=""; DESCRIPTION_EN=""; NOTES_EN=""; TITLE_IT=""; DESCRIPTION_IT=""; NOTES_IT=""; FIXES=""
   local k v parsed
   parsed=$(parse_preset "$1") || { t "file illeggibile" "unreadable file"; echo; return 1; }
   while IFS=$'\t' read -r k v; do
@@ -589,6 +590,10 @@ load_preset_file() {
   case "$ORDER" in ""|*[!0-9]*) ORDER=50;; esac
   case "$FONT_SMOOTHING" in 1) ;; *) FONT_SMOOTHING=0;; esac
   case "$ICON" in *[!a-z0-9.]*) ICON="";; esac
+  local fx
+  for fx in $FIXES; do
+    is_known_fix "$fx" || { t "correttivo sconosciuto in FIXES: $fx" "unknown fix in FIXES: $fx"; echo; return 1; }
+  done
   # texts in the UI language (base values are kept in BASE_*)
   BASE_TITLE="$TITLE"; BASE_DESCRIPTION="$DESCRIPTION"; BASE_NOTES="$NOTES"
   if [ "$UI_LANG" = en ]; then
@@ -613,6 +618,7 @@ preset_summary() { # describe what the loaded recipe will do
   [ "$FONT_SMOOTHING" = 1 ] && printf '    • %s\n' "$(t 'antialiasing dei caratteri' 'font smoothing')"
   [ -n "$REGISTRY" ]      && printf '    • %s:\n%s\n' "$(t 'modifiche al registro' 'registry changes')" "$(printf '%s\n' "$REGISTRY" | sed 's/^/        /')"
   [ -n "$INSTALLER_URL" ] && printf '    • %s%s%s: %s %s\n' "$Y" "$(t 'scarica ed esegue' 'downloads and runs')" "$N" "$INSTALLER_URL" "$INSTALLER_ARGS"
+  [ -n "$FIXES" ]         && printf '    • %s: %s\n' "$(t 'correttivi di Sommelier' 'Sommelier fixes')" "$FIXES"
   [ -n "$PROGRAM_NAME" ]  && printf '    • %s: %s %s\n' "$(t 'aggiunge il programma' 'adds the program')" "$PROGRAM_NAME" "$PROGRAM_ARGS"
   [ -n "$SOURCE" ]        && printf '    • %s: %s\n' "$(t fonte source)" "$SOURCE"
   return 0
@@ -830,6 +836,53 @@ run_reg() { # import .reg text into the current bottle
   rm -f "$tmp"
 }
 
+# ---------------------------------------------------------------- built-in fixes
+#
+# A recipe can only enable fixes by name (FIXES="..."); their code lives here. Binaries are
+# downloaded from Sommelier's own GitHub releases, built by CI from fixes/<name>/, and checked
+# against the SHA-256 pinned below.
+KNOWN_FIXES="steam-webhelper"
+FIX_STEAM_WEBHELPER_URL="https://github.com/homecla/sommelier/releases/download/steam-webhelper-v1/winmm.dll"
+FIX_STEAM_WEBHELPER_SHA256="c481fa31c5d334476a65dd7b0a26ae7f1014e1c5ba4f7250a9169260f2b8d605"
+
+is_known_fix() { case " $KNOWN_FIXES " in *" $1 "*) return 0;; esac; return 1; }
+fix_title_it() { case "$1" in steam-webhelper) echo "Installo il correttivo per la finestra nera di Steam";; esac; }
+fix_title_en() { case "$1" in steam-webhelper) echo "Installing the fix for Steam's black window";; esac; }
+
+wine_builtin_winmm() { # Wine's own 64-bit winmm.dll for the Wine in use
+  local f; f="$(dirname "$WINE")/../lib/wine/x86_64-windows/winmm.dll"
+  [ -f "$f" ] && echo "$f"
+}
+
+# steam-webhelper: a winmm.dll proxy, loaded only by steamwebhelper.exe, that adds
+# --in-process-gpu to Chromium's command line (see fixes/steam-webhelper/proxy.c).
+fix_apply_steam_webhelper() {
+  local sys="$WINEPREFIX/drive_c/windows/system32" dll="$CACHE/fixes/steam-webhelper-v1/winmm.dll" orig
+  orig=$(wine_builtin_winmm) || { warn "winmm di Wine non trovato" "Wine's winmm not found"; return 1; }
+  if [ ! -f "$dll" ] || [ "$(shasum -a 256 "$dll" | cut -d' ' -f1)" != "$FIX_STEAM_WEBHELPER_SHA256" ]; then
+    mkdir -p "$(dirname "$dll")"
+    curl -fsSL --max-time 60 -o "$dll.part" "$FIX_STEAM_WEBHELPER_URL" || { rm -f "$dll.part"; warn "download del correttivo non riuscito" "fix download failed"; return 1; }
+    if [ "$(shasum -a 256 "$dll.part" | cut -d' ' -f1)" != "$FIX_STEAM_WEBHELPER_SHA256" ]; then
+      rm -f "$dll.part"; warn "impronta SHA-256 del correttivo non corrispondente: non installato" "fix SHA-256 mismatch: not installed"; return 1
+    fi
+    mv "$dll.part" "$dll"
+  fi
+  mkdir -p "$sys"
+  cp "$orig" "$sys/winmm_orig.dll" && cp "$dll" "$sys/winmm.dll" || return 1
+  run_reg '[HKEY_CURRENT_USER\Software\Wine\AppDefaults\steamwebhelper.exe\DllOverrides]
+"winmm"="native,builtin"'
+  "$WINESERVER" -w 2>/dev/null
+  return 0
+}
+
+# Keep winmm_orig.dll equal to the winmm of the Wine version in use (e.g. after switching branch)
+fix_sync_steam_webhelper() {
+  local sys="$WINEPREFIX/drive_c/windows/system32" orig
+  [ -f "$sys/winmm_orig.dll" ] || return 0
+  orig=$(wine_builtin_winmm) || return 0
+  cmp -s "$orig" "$sys/winmm_orig.dll" || cp "$orig" "$sys/winmm_orig.dll"
+}
+
 preset_stage_count() { # number of numbered steps apply_preset will run for recipe $1
   load_preset "$1"
   local n=0 v
@@ -838,6 +891,7 @@ preset_stage_count() { # number of numbered steps apply_preset will run for reci
   [ -n "$REGISTRY" ] && n=$((n + 1))
   for v in $WINETRICKS; do n=$((n + 1)); done
   [ -n "$INSTALLER_URL" ] && n=$((n + 2))
+  for v in $FIXES; do n=$((n + 1)); done
   [ -n "$PROGRAM_PATH" ] && n=$((n + 1))
   echo "$n"
 }
@@ -876,6 +930,12 @@ apply_preset() { # $1 recipe, $2 bottle folder (environment already set by setup
     done
     "$WINESERVER" -w 2>/dev/null
   fi
+
+  local fx
+  for fx in $FIXES; do
+    stage "$(fix_title_it "$fx")" "$(fix_title_en "$fx")"
+    "fix_apply_${fx//-/_}" || warn "correttivo '$fx' non applicato" "fix '$fx' was not applied"
+  done
 
   if [ -n "$INSTALLER_URL" ]; then
     local inst="$CACHE/installers/$(basename "${INSTALLER_URL%%\?*}")" size
